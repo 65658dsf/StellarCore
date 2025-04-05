@@ -1,0 +1,18 @@
+{
+  "name": "stellar-frp-web",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@9.9.0",
+  "scripts": {
+    "dev:frpc": "pnpm --filter frpc-dashboard dev",
+    "dev:frps": "pnpm --filter frps-dashboard dev",
+    "build:frpc": "pnpm --filter frpc-dashboard build",
+    "build:frps": "pnpm --filter frps-dashboard build",
+    "clean": "pnpm -r run clean",
+    "lint": "pnpm -r run lint",
+    "install-deps": "pnpm install"
+  },
+  "devDependencies": {
+    "typescript": "~5.3.3"
+  }
+} 

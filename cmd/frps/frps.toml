@@ -1,0 +1,16 @@
+bindPort = 7000
+allowPorts = [
+  { start = 10000, end = 30000 },
+]
+webServer.addr = "0.0.0.0"
+webServer.port = 7001
+webServer.user = "NingMeng123"
+webServer.password = "NingMeng080317"
+[[httpPlugins]]
+addr = "https://api.stellarfrp.top"
+path = "/vip"
+ops = ["Login"]
+[[httpPlugins]]
+addr = "https://api.stellarfrp.top"
+path = "/check_proxy"
+ops = ["NewProxy"]

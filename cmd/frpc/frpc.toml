@@ -1,0 +1,10 @@
+serverAddr = "127.0.0.1"
+serverPort = 7000
+user = "NingMeng123"
+metadatas.token = ""
+[[proxies]]
+name = "HNkZi3tc"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 25565
+remotePort = 18726
