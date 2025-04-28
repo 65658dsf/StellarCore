@@ -57,15 +57,16 @@ if [ -z "$PUBLIC_IP" ]; then
     echo "警告：无法获取公网 IP 地址。将默认使用 GitHub 直接下载。"
 else
     echo "获取到公网 IP: $PUBLIC_IP"
-    echo "正在检测 IP 地理位置 (使用 ipinfo.io)..."
-    # Use ipinfo.io to get country code, timeout after 10s
-    COUNTRY_CODE=$(curl -s -m 10 "https://ipinfo.io/${PUBLIC_IP}/country")
-    # Trim potential whitespace/newline
-    COUNTRY_CODE=$(echo "$COUNTRY_CODE" | tr -d '[:space:]')
+    echo "正在检测 IP 地理位置 (使用 api.ip.sb)..."
+    # Use api.ip.sb to get geo info, timeout after 10s
+    GEO_INFO=$(curl -s -m 10 "https://api.ip.sb/geoip/$PUBLIC_IP")
+    # Extract country code from JSON response
+    COUNTRY_CODE=$(echo "$GEO_INFO" | grep -o '"country_code":"[^"]*' | cut -d'"' -f4)
+    
     if [ -z "$COUNTRY_CODE" ]; then
-         echo "警告：无法检测 IP 地理位置。将默认使用 GitHub 直接下载。"
+        echo "警告：无法检测 IP 地理位置。将默认使用 GitHub 直接下载。"
     else
-         echo "检测到国家代码: $COUNTRY_CODE"
+        echo "检测到国家代码: $COUNTRY_CODE"
     fi
 fi
 
