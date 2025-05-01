@@ -11,55 +11,55 @@
             <el-form-item label="版本">
               <span>{{ data.version }}</span>
             </el-form-item>
-            <el-form-item label="绑定端口">
+            <el-form-item label="运行端口">
               <span>{{ data.bindPort }}</span>
             </el-form-item>
-            <el-form-item label="KCP 绑定端口" v-if="data.kcpBindPort != 0">
+            <el-form-item label="KCP Bind Port" v-if="data.kcpBindPort != 0">
               <span>{{ data.kcpBindPort }}</span>
             </el-form-item>
-            <el-form-item label="QUIC 绑定端口" v-if="data.quicBindPort != 0">
+            <el-form-item label="QUIC Bind Port" v-if="data.quicBindPort != 0">
               <span>{{ data.quicBindPort }}</span>
             </el-form-item>
-            <el-form-item label="HTTP 端口" v-if="data.vhostHTTPPort != 0">
+            <el-form-item label="HTTP Port" v-if="data.vhostHTTPPort != 0">
               <span>{{ data.vhostHTTPPort }}</span>
             </el-form-item>
-            <el-form-item label="HTTPS 端口" v-if="data.vhostHTTPSPort != 0">
+            <el-form-item label="HTTPS Port" v-if="data.vhostHTTPSPort != 0">
               <span>{{ data.vhostHTTPSPort }}</span>
             </el-form-item>
             <el-form-item
-              label="TCPMux HTTP连接端口"
+              label="TCPMux HTTPConnect Port"
               v-if="data.tcpmuxHTTPConnectPort != 0"
             >
               <span>{{ data.tcpmuxHTTPConnectPort }}</span>
             </el-form-item>
             <el-form-item
-              label="子域名主机"
+              label="Subdomain Host"
               v-if="data.subdomainHost != ''"
             >
               <LongSpan :content="data.subdomainHost" :length="30"></LongSpan>
             </el-form-item>
-            <el-form-item label="最大连接池数量">
+            <el-form-item label="最大连接数">
               <span>{{ data.maxPoolCount }}</span>
             </el-form-item>
-            <el-form-item label="每客户端最大端口数">
+            <el-form-item label="最大端口数">
               <span>{{ data.maxPortsPerClient }}</span>
             </el-form-item>
-            <el-form-item label="允许的端口" v-if="data.allowPortsStr != ''">
+            <el-form-item label="允许端口" v-if="data.allowPortsStr != ''">
               <LongSpan :content="data.allowPortsStr" :length="30"></LongSpan>
             </el-form-item>
-            <el-form-item label="强制TLS" v-if="data.tlsForce === true">
+            <el-form-item label="TLS Force" v-if="data.tlsForce === true">
               <span>{{ data.tlsForce }}</span>
             </el-form-item>
             <el-form-item label="心跳超时">
               <span>{{ data.heartbeatTimeout }}</span>
             </el-form-item>
-            <el-form-item label="客户端数量">
+            <el-form-item label="客户端数">
               <span>{{ data.clientCounts }}</span>
             </el-form-item>
             <el-form-item label="当前连接数">
               <span>{{ data.curConns }}</span>
             </el-form-item>
-            <el-form-item label="代理数量">
+            <el-form-item label="隧道数">
               <span>{{ data.proxyCounts }}</span>
             </el-form-item>
           </el-form>
@@ -116,7 +116,7 @@ const fetchData = () => {
       data.value.maxPoolCount = json.maxPoolCount
       data.value.maxPortsPerClient = json.maxPortsPerClient
       if (data.value.maxPortsPerClient == '0') {
-        data.value.maxPortsPerClient = '无限制'
+        data.value.maxPortsPerClient = 'no limit'
       }
       data.value.allowPortsStr = json.allowPortsStr
       data.value.tlsForce = json.tlsForce
@@ -155,7 +155,7 @@ const fetchData = () => {
     .catch(() => {
       ElMessage({
         showClose: true,
-        message: '从frps获取服务器信息失败！',
+        message: 'Get server info from frps failed!',
         type: 'warning',
       })
     })

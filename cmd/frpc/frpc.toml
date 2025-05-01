@@ -1,10 +1,11 @@
 serverAddr = "127.0.0.1"
 serverPort = 7000
 user = "NingMeng123"
-metadatas.token = ""
+metadatas.token = "gznt4gwp6qdw49f82xgt4k6b56zvjwvv"
+
 [[proxies]]
-name = "HNkZi3tc"
+name = "asdasd"
 type = "tcp"
 localIP = "127.0.0.1"
 localPort = 25565
-remotePort = 18726
+remotePort = 25545

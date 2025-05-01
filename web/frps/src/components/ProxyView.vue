@@ -10,14 +10,6 @@
       <template #content> </template>
       <template #extra>
         <div class="flex items-center" style="margin-right: 30px">
-          <el-popconfirm
-            title="确定要清除所有离线代理的数据吗？"
-            @confirm="clearOfflineProxies"
-          >
-            <template #reference>
-              <el-button>清除离线代理</el-button>
-            </template>
-          </el-popconfirm>
           <el-button @click="$emit('refresh')">刷新</el-button>
         </div>
       </template>
@@ -33,7 +25,7 @@
           <ProxyViewExpand :row="props.row" :proxyType="proxyType" />
         </template>
       </el-table-column>
-      <el-table-column label="名称" prop="name" sortable> </el-table-column>
+      <el-table-column label="隧道名称" prop="name" sortable> </el-table-column>
       <el-table-column label="端口" prop="port" sortable> </el-table-column>
       <el-table-column label="连接数" prop="conns" sortable>
       </el-table-column>
@@ -56,22 +48,29 @@
       <el-table-column label="状态" prop="status" sortable>
         <template #default="scope">
           <el-tag v-if="scope.row.status === 'online'" type="success">{{
-            scope.row.status === 'online' ? '在线' : ''
+            scope.row.status
           }}</el-tag>
-          <el-tag v-else type="danger">{{ 
-            scope.row.status === 'offline' ? '离线' : scope.row.status 
-          }}</el-tag>
+          <el-tag v-else type="danger">{{ scope.row.status }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="操作">
         <template #default="scope">
-          <el-button
-            type="primary"
-            :name="scope.row.name"
-            style="margin-bottom: 10px"
-            @click="dialogVisibleName = scope.row.name; dialogVisible = true"
-            >流量
-          </el-button>
+          <el-dropdown @command="handleCommand($event, scope.row)">
+            <el-button type="primary">
+              操作 ▼
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="traffic">查看流量</el-dropdown-item>
+                <el-dropdown-item 
+                  v-if="scope.row.status === 'online'"
+                  command="close"
+                  :disabled="scope.row.status !== 'online'">
+                  关闭隧道
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </template>
       </el-table-column>
     </el-table>
@@ -83,6 +82,22 @@
     :title="dialogVisibleName"
     width="700px">
     <Traffic :proxyName="dialogVisibleName" />
+  </el-dialog>
+  
+  <!-- 确认关闭隧道对话框 -->
+  <el-dialog
+    v-model="closeDialogVisible"
+    title="关闭隧道"
+    width="400px">
+    <span>确定要关闭隧道 "{{ selectedProxy?.name }}" 吗？</span>
+    <template #footer>
+      <span class="dialog-footer">
+        <el-button @click="closeDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmCloseProxy" :loading="closingProxy">
+          确定
+        </el-button>
+      </span>
+    </template>
   </el-dialog>
 </template>
 
@@ -103,6 +118,9 @@ const emit = defineEmits(['refresh'])
 
 const dialogVisible = ref(false)
 const dialogVisibleName = ref("")
+const closeDialogVisible = ref(false)
+const selectedProxy = ref<BaseProxy | null>(null)
+const closingProxy = ref(false)
 
 const formatTrafficIn = (row: BaseProxy, _: TableColumnCtx<BaseProxy>) => {
   return Humanize.fileSize(row.trafficIn)
@@ -112,31 +130,73 @@ const formatTrafficOut = (row: BaseProxy, _: TableColumnCtx<BaseProxy>) => {
   return Humanize.fileSize(row.trafficOut)
 }
 
-const clearOfflineProxies = () => {
-  fetch('../api/proxies?status=offline', {
-    method: 'DELETE',
-    credentials: 'include',
+const handleCommand = (command: string, row: BaseProxy) => {
+  if (command === 'traffic') {
+    dialogVisibleName.value = row.name
+    dialogVisible.value = true
+  } else if (command === 'close') {
+    selectedProxy.value = row
+    closeDialogVisible.value = true
+  }
+}
+
+const confirmCloseProxy = () => {
+  if (!selectedProxy.value) return
+  
+  closingProxy.value = true
+  
+  // 获取隧道名称
+  const fullName = selectedProxy.value.name
+  // 注释掉未使用的变量
+  // const nameParts = fullName.split('.')
+  // const username = nameParts[0]
+  // const proxyName = nameParts.length > 1 ? fullName.substring(username.length + 1) : fullName
+  
+  // 获取API凭据
+  // 注意：你需要根据实际情况获取或配置API凭据
+  // 这里假设有全局变量或者从其他地方获取的凭据
+  
+  // 构建关闭请求数据
+  const closeData = {
+    runId: selectedProxy.value.runId
+  }
+  
+  fetch('../api/client/kick', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',  // 包含凭据（cookies等）
+    body: JSON.stringify(closeData)
   })
-    .then((res) => {
-      if (res.ok) {
-        ElMessage({
-          message: '成功清除离线代理',
-          type: 'success',
-        })
-        emit('refresh')
-      } else {
-        ElMessage({
-          message: '清除离线代理失败: ' + res.status + ' ' + res.statusText,
-          type: 'warning',
-        })
-      }
-    })
-    .catch((err) => {
+  .then(async response => {
+    const data = await response.json()
+    closingProxy.value = false
+    closeDialogVisible.value = false
+    
+    if (data.status === 200) {
+      // 先执行刷新
+      await emit('refresh')
+      
       ElMessage({
-        message: '清除离线代理失败: ' + err.message,
-        type: 'warning',
+        message: '隧道关闭成功',
+        type: 'success'
       })
+    } else {
+      ElMessage({
+        message: '关闭隧道失败: ' + (data.message || '未知错误'),
+        type: 'error'
+      })
+    }
+  })
+  .catch(error => {
+    closingProxy.value = false
+    closeDialogVisible.value = false
+    ElMessage({
+      message: '关闭隧道请求失败: ' + error.message,
+      type: 'error'
     })
+  })
 }
 </script>
 

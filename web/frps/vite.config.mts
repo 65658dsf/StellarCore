@@ -27,11 +27,12 @@ export default defineConfig({
     assetsDir: '',
   },
   server: {
+    host: '127.0.0.1',
+    port: 25454,
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:7001',
         changeOrigin: true,
-        secure: false
       }
     }
   }

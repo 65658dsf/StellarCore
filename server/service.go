@@ -446,7 +446,7 @@ func (svr *Service) handleConnection(ctx context.Context, conn net.Conn, interna
 
 	_ = conn.SetReadDeadline(time.Now().Add(connReadTimeout))
 	if rawMsg, err = msg.ReadMsg(conn); err != nil {
-		log.Tracef("Failed to read message: %v", err)
+		log.Tracef("读取消息失败: %v", err)
 		conn.Close()
 		return
 	}
@@ -469,10 +469,10 @@ func (svr *Service) handleConnection(ctx context.Context, conn net.Conn, interna
 		// Otherwise send success message in control's work goroutine.
 		// Reject 可以有也可以没有
 		if err != nil {
-			xl.Warnf("register control error: %v", err)
+			xl.Warnf("注册控制器失败: %v", err)
 			_ = msg.WriteMsg(conn, &msg.LoginResp{
 				Version: version.Full(),
-				Error:   util.GenerateResponseErrorString("register control error", err, lo.FromPtr(svr.cfg.DetailedErrorsToClient)),
+				Error:   util.GenerateResponseErrorString("注册控制器失败", err, lo.FromPtr(svr.cfg.DetailedErrorsToClient)),
 			})
 			conn.Close()
 		}
@@ -482,10 +482,10 @@ func (svr *Service) handleConnection(ctx context.Context, conn net.Conn, interna
 		}
 	case *msg.NewVisitorConn:
 		if err = svr.RegisterVisitorConn(conn, m); err != nil {
-			xl.Warnf("register visitor conn error: %v", err)
+			xl.Warnf("注册访问者连接失败: %v", err)
 			_ = msg.WriteMsg(conn, &msg.NewVisitorConnResp{
 				ProxyName: m.ProxyName,
-				Error:     util.GenerateResponseErrorString("register visitor conn error", err, lo.FromPtr(svr.cfg.DetailedErrorsToClient)),
+				Error:     util.GenerateResponseErrorString("注册访问者连接失败", err, lo.FromPtr(svr.cfg.DetailedErrorsToClient)),
 			})
 			conn.Close()
 		} else {
@@ -495,7 +495,7 @@ func (svr *Service) handleConnection(ctx context.Context, conn net.Conn, interna
 			})
 		}
 	default:
-		log.Warnf("Error message type for the new connection [%s]", conn.RemoteAddr().String())
+		log.Warnf("新连接错误消息类型: %s", conn.RemoteAddr().String())
 		conn.Close()
 	}
 }
@@ -508,7 +508,7 @@ func (svr *Service) HandleListener(l net.Listener, internal bool) {
 	for {
 		c, err := l.Accept()
 		if err != nil {
-			log.Warnf("Listener for incoming connections from client closed")
+			log.Warnf("客户端连接监听器关闭")
 			return
 		}
 		// inject xlog object into net.Conn context
@@ -518,17 +518,17 @@ func (svr *Service) HandleListener(l net.Listener, internal bool) {
 		c = netpkg.NewContextConn(xlog.NewContext(ctx, xl), c)
 
 		if !internal {
-			log.Tracef("start check TLS connection...")
+			log.Tracef("开始检查TLS连接...")
 			originConn := c
 			forceTLS := svr.cfg.Transport.TLS.Force
 			var isTLS, custom bool
 			c, isTLS, custom, err = netpkg.CheckAndEnableTLSServerConnWithTimeout(c, svr.tlsConfig, forceTLS, connReadTimeout)
 			if err != nil {
-				log.Warnf("CheckAndEnableTLSServerConnWithTimeout error: %v", err)
+				log.Warnf("检查TLS连接失败: %v", err)
 				originConn.Close()
 				continue
 			}
-			log.Tracef("check TLS connection success, isTLS: %v custom: %v internal: %v", isTLS, custom, internal)
+			log.Tracef("检查TLS连接成功, isTLS: %v custom: %v internal: %v", isTLS, custom, internal)
 		}
 
 		// Start a new goroutine to handle connection.
@@ -540,7 +540,7 @@ func (svr *Service) HandleListener(l net.Listener, internal bool) {
 				fmuxCfg.MaxStreamWindowSize = 6 * 1024 * 1024
 				session, err := fmux.Server(frpConn, fmuxCfg)
 				if err != nil {
-					log.Warnf("Failed to create mux connection: %v", err)
+					log.Warnf("创建多路复用连接失败: %v", err)
 					frpConn.Close()
 					return
 				}
@@ -548,7 +548,7 @@ func (svr *Service) HandleListener(l net.Listener, internal bool) {
 				for {
 					stream, err := session.AcceptStream()
 					if err != nil {
-						log.Debugf("Accept new mux stream error: %v", err)
+						log.Debugf("接受新多路复用流失败: %v", err)
 						session.Close()
 						return
 					}
@@ -566,7 +566,7 @@ func (svr *Service) HandleQUICListener(l *quic.Listener) {
 	for {
 		c, err := l.Accept(context.Background())
 		if err != nil {
-			log.Warnf("QUICListener for incoming connections from client closed")
+			log.Warnf("QUIC监听器关闭")
 			return
 		}
 		// Start a new goroutine to handle connection.
@@ -574,7 +574,7 @@ func (svr *Service) HandleQUICListener(l *quic.Listener) {
 			for {
 				stream, err := frpConn.AcceptStream(context.Background())
 				if err != nil {
-					log.Debugf("Accept new quic mux stream error: %v", err)
+					log.Debugf("接受新QUIC多路复用流失败: %v", err)
 					_ = frpConn.CloseWithError(0, "")
 					return
 				}
@@ -599,12 +599,12 @@ func (svr *Service) RegisterControl(ctlConn net.Conn, loginMsg *msg.Login, inter
 	xl := xlog.FromContextSafe(ctx)
 	xl.AppendPrefix(loginMsg.RunID)
 	ctx = xlog.NewContext(ctx, xl)
-	xl.Infof("client login info: ip [%s] version [%s] hostname [%s] os [%s] arch [%s]",
+	xl.Infof("客户端登录信息: IP [%s] 版本 [%s] 主机名 [%s] 操作系统 [%s] 架构 [%s]",
 		ctlConn.RemoteAddr().String(), loginMsg.Version, loginMsg.Hostname, loginMsg.Os, loginMsg.Arch)
 
 	// 检查客户端是否在黑名单中
 	if svr.IsInBlacklist(loginMsg.RunID) {
-		xl.Warnf("client [%s] is in blacklist and not allowed to connect", loginMsg.RunID)
+		xl.Warnf("客户端 [%s] 在黑名单中，不允许连接", loginMsg.RunID)
 		// 发送黑名单响应
 		resp := &msg.LoginResp{
 			Version: version.Full(),
@@ -612,9 +612,9 @@ func (svr *Service) RegisterControl(ctlConn net.Conn, loginMsg *msg.Login, inter
 		}
 		err := msg.WriteMsg(ctlConn, resp)
 		if err != nil {
-			xl.Warnf("write error message to client error: %v", err)
+			xl.Warnf("写入错误消息到客户端失败: %v", err)
 		}
-		return fmt.Errorf("client [%s] is in blacklist", loginMsg.RunID)
+		return fmt.Errorf("客户端 [%s] 在黑名单中", loginMsg.RunID)
 	}
 
 	// Check auth.
@@ -629,7 +629,7 @@ func (svr *Service) RegisterControl(ctlConn net.Conn, loginMsg *msg.Login, inter
 	// TODO(fatedier): use SessionContext
 	ctl, err := NewControl(ctx, svr.rc, svr.pxyManager, svr.pluginManager, authVerifier, ctlConn, !internal, loginMsg, svr.cfg)
 	if err != nil {
-		xl.Warnf("create new controller error: %v", err)
+		xl.Warnf("创建新控制器失败: %v", err)
 		// don't return detailed errors to client
 		return fmt.Errorf("创建控制器时发生意外错误")
 	}
@@ -655,7 +655,7 @@ func (svr *Service) RegisterWorkConn(workConn net.Conn, newMsg *msg.NewWorkConn)
 	xl := netpkg.NewLogFromConn(workConn)
 	ctl, exist := svr.ctlManager.GetByID(newMsg.RunID)
 	if !exist {
-		xl.Warnf("No client control found for run id [%s]", newMsg.RunID)
+		xl.Warnf("未找到运行ID为 [%s] 的客户端控制", newMsg.RunID)
 		return fmt.Errorf("未找到运行ID为 [%s] 的客户端控制", newMsg.RunID)
 	}
 	// server plugin hook
@@ -674,9 +674,9 @@ func (svr *Service) RegisterWorkConn(workConn net.Conn, newMsg *msg.NewWorkConn)
 		err = ctl.authVerifier.VerifyNewWorkConn(newMsg)
 	}
 	if err != nil {
-		xl.Warnf("invalid NewWorkConn with run id [%s]", newMsg.RunID)
+		xl.Warnf("无效的新工作连接，运行ID为 [%s]", newMsg.RunID)
 		_ = msg.WriteMsg(workConn, &msg.StartWorkConn{
-			Error: util.GenerateResponseErrorString("invalid NewWorkConn", err, lo.FromPtr(svr.cfg.DetailedErrorsToClient)),
+			Error: util.GenerateResponseErrorString("无效的新工作连接", err, lo.FromPtr(svr.cfg.DetailedErrorsToClient)),
 		})
 		return fmt.Errorf("无效的新工作连接，运行ID为 [%s]", newMsg.RunID)
 	}
@@ -705,7 +705,7 @@ func (svr *Service) AddToBlacklist(runID string, duration time.Duration) {
 
 	expireTime := time.Now().Add(duration)
 	svr.blacklist[runID] = expireTime
-	log.Infof("Added client [%s] to blacklist until %s", runID, expireTime.Format("2006-01-02 15:04:05"))
+	log.Infof("添加客户端 [%s] 到黑名单，直到 %s", runID, expireTime.Format("2006-01-02 15:04:05"))
 }
 
 // 检查客户端是否在黑名单中
@@ -723,7 +723,7 @@ func (svr *Service) IsInBlacklist(runID string) bool {
 		return false
 	}
 
-	log.Infof("Client [%s] is in blacklist until %s", runID, expireTime.Format("2006-01-02 15:04:05"))
+	log.Infof("客户端 [%s] 在黑名单中，直到 %s", runID, expireTime.Format("2006-01-02 15:04:05"))
 	return true
 }
 
@@ -743,7 +743,7 @@ func (svr *Service) cleanBlacklist() {
 			for runID, expireTime := range svr.blacklist {
 				if now.After(expireTime) {
 					delete(svr.blacklist, runID)
-					log.Infof("Removed client [%s] from blacklist (expired)", runID)
+					log.Infof("从黑名单中移除客户端 [%s] (已过期)", runID)
 				}
 			}
 

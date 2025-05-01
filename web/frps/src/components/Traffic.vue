@@ -22,7 +22,7 @@ const fetchData = () => {
     .catch((err) => {
       ElMessage({
         showClose: true,
-        message: '获取流量信息失败！' + err,
+        message: '获取流量信息失败' + err,
         type: 'warning',
       })
     })

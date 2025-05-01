@@ -3,13 +3,13 @@
     <header class="grid-content header-color">
       <div class="header-content">
         <div class="brand">
-          <a href="#">frp</a>
+          <a href="#">StellarCore</a>
         </div>
         <div class="dark-switch">
           <el-switch
             v-model="darkmodeSwitch"
             inline-prompt
-            active-text="暗色"
+            active-text= "暗色"
             inactive-text="亮色"
             @change="toggleDark"
             style="
@@ -30,20 +30,18 @@
             router="false"
             @select="handleSelect"
           >
-            <el-menu-item index="/">概览</el-menu-item>
+            <el-menu-item index="/">首页</el-menu-item>
             <el-sub-menu index="/proxies">
               <template #title>
-                <span>代理</span>
+                <span>隧道列表</span>
               </template>
               <el-menu-item index="/proxies/tcp">TCP</el-menu-item>
               <el-menu-item index="/proxies/udp">UDP</el-menu-item>
               <el-menu-item index="/proxies/http">HTTP</el-menu-item>
               <el-menu-item index="/proxies/https">HTTPS</el-menu-item>
-              <el-menu-item index="/proxies/tcpmux">TCPMUX</el-menu-item>
-              <el-menu-item index="/proxies/stcp">STCP</el-menu-item>
-              <el-menu-item index="/proxies/sudp">SUDP</el-menu-item>
             </el-sub-menu>
-            <el-menu-item index="">帮助</el-menu-item>
+            <el-menu-item index="https://docs.stellarfrp.top">帮助</el-menu-item>
+            <el-menu-item index="https://www.stellarfrp.top">官网</el-menu-item>
           </el-menu>
         </el-col>
 
@@ -67,8 +65,11 @@ const darkmodeSwitch = ref(isDark)
 const toggleDark = useToggle(isDark)
 
 const handleSelect = (key: string) => {
-  if (key == '') {
-    window.open('https://github.com/fatedier/frp')
+  if (key == 'https://docs.stellarfrp.top') {
+    window.open('https://docs.stellarfrp.top')
+  }
+  if (key == 'https://www.stellarfrp.top') {
+    window.open('https://www.stellarfrp.top')
   }
 }
 </script>

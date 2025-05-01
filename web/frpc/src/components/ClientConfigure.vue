@@ -1,40 +1,23 @@
 <template>
   <div>
-    <n-card title="客户端配置" class="config-card">
-      <template #header-extra>
-        <n-space>
-          <n-button @click="fetchData" type="default" size="small">
-            <template #icon>
-              <n-icon><RefreshIcon /></n-icon>
-            </template>
-            刷新
-          </n-button>
-          <n-button @click="uploadConfig" type="primary" size="small">
-            <template #icon>
-              <n-icon><UploadIcon /></n-icon>
-            </template>
-            上传配置
-          </n-button>
-        </n-space>
-      </template>
-      <n-input
-        v-model:value="configContent"
-        type="textarea"
-        placeholder="请输入frpc配置内容"
-        :autosize="{ minRows: 20, maxRows: 30 }"
-      />
-    </n-card>
+    <el-row id="head">
+      <el-button type="primary" @click="fetchData">Refresh</el-button>
+      <el-button type="primary" @click="uploadConfig">Upload</el-button>
+    </el-row>
+    <el-input
+      type="textarea"
+      autosize
+      v-model="textarea"
+      placeholder="frpc configure file, can not be empty..."
+    ></el-input>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { NCard, NInput, NButton, NSpace, NIcon, useMessage, useDialog } from 'naive-ui'
-import { Refresh as RefreshIcon, Upload as UploadIcon } from '@vicons/ionicons5'
+import { ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
-const message = useMessage()
-const dialog = useDialog()
-const configContent = ref('')
+let textarea = ref('')
 
 const fetchData = () => {
   fetch('/api/config', { credentials: 'include' })
@@ -42,51 +25,78 @@ const fetchData = () => {
       return res.text()
     })
     .then((text) => {
-      configContent.value = text
+      textarea.value = text
     })
-    .catch((err) => {
-      message.error('获取配置信息失败：' + err)
+    .catch(() => {
+      ElMessage({
+        showClose: true,
+        message: 'Get configure content from frpc failed!',
+        type: 'warning',
+      })
     })
 }
 
 const uploadConfig = () => {
-  dialog.warning({
-    title: '确认上传',
-    content: '确定要上传新的配置吗？上传后需要重启frpc才能生效。',
-    positiveText: '确认',
-    negativeText: '取消',
-    onPositiveClick: () => {
+  ElMessageBox.confirm(
+    'This operation will upload your frpc configure file content and hot reload it, do you want to continue?',
+    'Notice',
+    {
+      confirmButtonText: 'Yes',
+      cancelButtonText: 'No',
+      type: 'warning',
+    }
+  )
+    .then(() => {
+      if (textarea.value == '') {
+        ElMessage({
+          message: 'Configure content can not be empty!',
+          type: 'warning',
+        })
+        return
+      }
+
       fetch('/api/config', {
-        method: 'POST',
         credentials: 'include',
-        headers: {
-          'Content-Type': 'text/plain',
-        },
-        body: configContent.value,
+        method: 'PUT',
+        body: textarea.value,
       })
-        .then((res) => {
-          if (res.status === 200) {
-            message.success('配置上传成功')
-            return
-          }
-          return res.text().then((text) => {
-            throw new Error(text)
+        .then(() => {
+          fetch('/api/reload', { credentials: 'include' })
+            .then(() => {
+              ElMessage({
+                type: 'success',
+                message: 'Success',
+              })
+            })
+            .catch((err) => {
+              ElMessage({
+                showClose: true,
+                message: 'Reload frpc configure file error, ' + err,
+                type: 'warning',
+              })
+            })
+        })
+        .catch(() => {
+          ElMessage({
+            showClose: true,
+            message: 'Put config to frpc and hot reload failed!',
+            type: 'warning',
           })
         })
-        .catch((err) => {
-          message.error('配置上传失败：' + err)
-        })
-    }
-  })
+    })
+    .catch(() => {
+      ElMessage({
+        message: 'Canceled',
+        type: 'info',
+      })
+    })
 }
 
-onMounted(() => {
-  fetchData()
-})
+fetchData()
 </script>
 
-<style scoped>
-.config-card {
-  margin-bottom: 16px;
+<style>
+#head {
+  margin-bottom: 30px;
 }
 </style>

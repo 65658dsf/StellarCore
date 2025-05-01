@@ -247,12 +247,12 @@ func (svr *Service) getProxyStatsByType(proxyType string) (proxyInfos []*ProxySt
 		if pxy, ok := svr.pxyManager.GetByName(ps.Name); ok {
 			content, err := json.Marshal(pxy.GetConfigurer())
 			if err != nil {
-				log.Warnf("marshal proxy [%s] conf info error: %v", ps.Name, err)
+				log.Warnf("解析隧道配置错误: %v", err)
 				continue
 			}
 			proxyInfo.Conf = getConfByType(ps.Type)
 			if err = json.Unmarshal(content, &proxyInfo.Conf); err != nil {
-				log.Warnf("unmarshal proxy [%s] conf info error: %v", ps.Name, err)
+				log.Warnf("解析隧道配置错误: %v", err)
 				continue
 			}
 			proxyInfo.Status = "online"
@@ -320,20 +320,20 @@ func (svr *Service) getProxyStatsByTypeAndName(proxyType string, proxyName strin
 	ps := mem.StatsCollector.GetProxiesByTypeAndName(proxyType, proxyName)
 	if ps == nil {
 		code = 404
-		msg = "no proxy info found"
+		msg = "未找到隧道信息"
 		return
 	}
 	if pxy, ok := svr.pxyManager.GetByName(proxyName); ok {
 		content, err := json.Marshal(pxy.GetConfigurer())
 		if err != nil {
-			log.Warnf("marshal proxy [%s] conf info error: %v", ps.Name, err)
+			log.Warnf("解析隧道配置错误: %v", err)
 			code = 400
 			msg = "解析配置错误"
 			return
 		}
 		proxyInfo.Conf = getConfByType(ps.Type)
 		if err = json.Unmarshal(content, &proxyInfo.Conf); err != nil {
-			log.Warnf("unmarshal proxy [%s] conf info error: %v", ps.Name, err)
+			log.Warnf("解析隧道配置错误: %v", err)
 			code = 400
 			msg = "解析配置错误"
 			return
@@ -382,7 +382,7 @@ func (svr *Service) apiProxyTraffic(w http.ResponseWriter, r *http.Request) {
 
 	if metrics == nil {
 		res.Code = 404
-		res.Msg = "no proxy info found"
+		res.Msg = "未找到隧道信息"
 		return
 	}
 
@@ -431,7 +431,7 @@ func (svr *Service) kickClient(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&bodyMap); err != nil {
 		resp.Status = 400
-		resp.Msg = "Invalid request"
+		resp.Msg = "请求错误"
 		buf, _ = json.Marshal(&resp)
 		w.Write(buf)
 		return
@@ -451,7 +451,7 @@ func (svr *Service) kickClient(w http.ResponseWriter, r *http.Request) {
 		resp.Msg = "success"
 	} else {
 		resp.Status = 404
-		resp.Msg = "client not found"
+		resp.Msg = "该隧道未运行"
 	}
 
 	buf, _ = json.Marshal(&resp)

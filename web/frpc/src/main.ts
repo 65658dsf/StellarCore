@@ -1,10 +1,9 @@
 import { createApp } from 'vue'
+import 'element-plus/dist/index.css'
+import 'element-plus/theme-chalk/dark/css-vars.css'
 import App from './App.vue'
 import router from './router'
 
-// 引入字体
-import 'vfonts/Lato.css'
-import 'vfonts/FiraCode.css'
 import './assets/dark.css'
 
 const app = createApp(App)

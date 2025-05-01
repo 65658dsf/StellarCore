@@ -5,16 +5,16 @@
     inline
     class="proxy-table-expand"
   >
-    <el-form-item label="名称">
+    <el-form-item label="隧道名称">
       <span>{{ row.name }}</span>
     </el-form-item>
-    <el-form-item label="类型">
+    <el-form-item label="隧道类型">
       <span>{{ row.type }}</span>
     </el-form-item>
-    <el-form-item label="加密">
+    <el-form-item label="是否加密">
       <span>{{ row.encryption }}</span>
     </el-form-item>
-    <el-form-item label="压缩">
+    <el-form-item label="是否压缩">
       <span>{{ row.compression }}</span>
     </el-form-item>
     <el-form-item label="最后启动时间">
@@ -23,7 +23,6 @@
     <el-form-item label="最后关闭时间">
       <span>{{ row.lastCloseTime }}</span>
     </el-form-item>
-
     <div v-if="proxyType === 'http' || proxyType === 'https'">
       <el-form-item label="域名">
         <span>{{ row.customDomains }}</span>
@@ -37,31 +36,23 @@
       <el-form-item label="主机重写">
         <span>{{ row.hostHeaderRewrite }}</span>
       </el-form-item>
-    </div>
-    <div v-else-if="proxyType === 'tcpmux'">
-      <el-form-item label="多路复用器">
-        <span>{{ row.multiplexer }}</span>
-      </el-form-item>
-      <el-form-item label="HTTP用户路由">
-        <span>{{ row.routeByHTTPUser }}</span>
-      </el-form-item>
-      <el-form-item label="域名">
-        <span>{{ row.customDomains }}</span>
-      </el-form-item>
-      <el-form-item label="子域名">
-        <span>{{ row.subdomain }}</span>
+      <el-form-item label="运行ID">
+        <span>{{ row.runId || '无' }}</span>
       </el-form-item>
     </div>
     <div v-else>
       <el-form-item label="地址">
         <span>{{ row.addr }}</span>
       </el-form-item>
+      <el-form-item label="运行ID">
+        <span>{{ row.runId || '无' }}</span>
+      </el-form-item>
     </div>
   </el-form>
 
   <div v-if="row.annotations && row.annotations.size > 0">
   <el-divider />
-  <el-text class="title-text" size="large">注解</el-text>
+  <el-text class="title-text" size="large">Annotations</el-text>
   <ul>
     <li v-for="item in annotationsArray()">
       <span class="annotation-key">{{ item.key }}</span>

@@ -271,13 +271,13 @@ func (c *Controller) HandleReport(m *msg.NatHoleReport) {
 	session, ok := c.sessions[m.Sid]
 	c.mu.RUnlock()
 	if !ok {
-		log.Tracef("sid [%s] report make hole success: %v, but session not found", m.Sid, m.Success)
+		log.Tracef("sid [%s] 成功发送报告: %v, 但会话未找到", m.Sid, m.Success)
 		return
 	}
 	if m.Success {
 		c.analyzer.ReportSuccess(session.analysisKey, session.recommandMode, session.recommandIndex)
 	}
-	log.Infof("sid [%s] report make hole success: %v, mode %v, index %v",
+	log.Infof("sid [%s] 成功发送报告: %v, 模式 %v, 索引 %v",
 		m.Sid, m.Success, session.recommandMode, session.recommandIndex)
 }
 
@@ -301,12 +301,12 @@ func (c *Controller) analysis(session *Session) (*msg.NatHoleResp, *msg.NatHoleR
 
 	cNatFeature, err := ClassifyNATFeature(cm.MappedAddrs, parseIPs(cm.AssistedAddrs))
 	if err != nil {
-		return nil, nil, fmt.Errorf("classify client nat feature error: %v", err)
+		return nil, nil, fmt.Errorf("分类客户端 NAT 特征错误: %v", err)
 	}
 
 	vNatFeature, err := ClassifyNATFeature(vm.MappedAddrs, parseIPs(vm.AssistedAddrs))
 	if err != nil {
-		return nil, nil, fmt.Errorf("classify visitor nat feature error: %v", err)
+		return nil, nil, fmt.Errorf("分类访客 NAT 特征错误: %v", err)
 	}
 	session.cNatFeature = cNatFeature
 	session.vNatFeature = vNatFeature
@@ -359,10 +359,10 @@ func (c *Controller) analysis(session *Session) (*msg.NatHoleResp, *msg.NatHoleR
 		},
 	}
 
-	log.Debugf("sid [%s] visitor nat: %+v, candidateAddrs: %v; client nat: %+v, candidateAddrs: %v, protocol: %s",
+	log.Debugf("sid [%s] 访客 NAT: %+v, 候选地址: %v; 客户端 NAT: %+v, 候选地址: %v, 协议: %s",
 		session.sid, *vNatFeature, vm.MappedAddrs, *cNatFeature, cm.MappedAddrs, protocol)
-	log.Debugf("sid [%s] visitor detect behavior: %+v", session.sid, vResp.DetectBehavior)
-	log.Debugf("sid [%s] client detect behavior: %+v", session.sid, cResp.DetectBehavior)
+	log.Debugf("sid [%s] 访客检测行为: %+v", session.sid, vResp.DetectBehavior)
+	log.Debugf("sid [%s] 客户端检测行为: %+v", session.sid, cResp.DetectBehavior)
 	return vResp, cResp, nil
 }
 

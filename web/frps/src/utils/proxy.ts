@@ -13,6 +13,7 @@ class BaseProxy {
   clientVersion: string
   addr: string
   port: number
+  runId: string
 
   customDomains: string
   hostHeaderRewrite: string
@@ -42,6 +43,7 @@ class BaseProxy {
     this.lastCloseTime = proxyStats.lastCloseTime
     this.status = proxyStats.status
     this.clientVersion = proxyStats.clientVersion
+    this.runId = proxyStats.runId || ''
 
     this.addr = ''
     this.port = 0
