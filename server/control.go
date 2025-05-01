@@ -224,7 +224,7 @@ func (ctl *Control) Close() error {
 
 func (ctl *Control) Replaced(newCtl *Control) {
 	xl := ctl.xl
-	xl.Infof("Replaced by client [%s]", newCtl.runID)
+	xl.Infof("客户端 [%s] 替换控制连接", newCtl.runID)
 	ctl.runID = ""
 	ctl.conn.Close()
 }
@@ -233,18 +233,18 @@ func (ctl *Control) RegisterWorkConn(conn net.Conn) error {
 	xl := ctl.xl
 	defer func() {
 		if err := recover(); err != nil {
-			xl.Errorf("panic error: %v", err)
+			xl.Errorf("panic 错误: %v", err)
 			xl.Errorf(string(debug.Stack()))
 		}
 	}()
 
 	select {
 	case ctl.workConnCh <- conn:
-		xl.Debugf("new work connection registered")
+		xl.Debugf("新工作连接注册")
 		return nil
 	default:
-		xl.Debugf("work connection pool is full, discarding")
-		return fmt.Errorf("work connection pool is full, discarding")
+		xl.Debugf("工作连接池已满，丢弃")
+		return fmt.Errorf("工作连接池已满，丢弃")
 	}
 }
 
@@ -256,7 +256,7 @@ func (ctl *Control) GetWorkConn() (workConn net.Conn, err error) {
 	xl := ctl.xl
 	defer func() {
 		if err := recover(); err != nil {
-			xl.Errorf("panic error: %v", err)
+			xl.Errorf("panic 错误: %v", err)
 			xl.Errorf(string(debug.Stack()))
 		}
 	}()
@@ -269,23 +269,23 @@ func (ctl *Control) GetWorkConn() (workConn net.Conn, err error) {
 			err = pkgerr.ErrCtlClosed
 			return
 		}
-		xl.Debugf("get work connection from pool")
+		xl.Debugf("从池中获取工作连接")
 	default:
-		// no work connections available in the poll, send message to frpc to get more
+		// 池中没有可用的工作连接，发送消息给 frpc 获取更多
 		if err := ctl.msgDispatcher.Send(&msg.ReqWorkConn{}); err != nil {
-			return nil, fmt.Errorf("control is already closed")
+			return nil, fmt.Errorf("控制连接已关闭")
 		}
 
 		select {
 		case workConn, ok = <-ctl.workConnCh:
 			if !ok {
 				err = pkgerr.ErrCtlClosed
-				xl.Warnf("no work connections available, %v", err)
+				xl.Warnf("没有可用的工作连接, %v", err)
 				return
 			}
 
 		case <-time.After(time.Duration(ctl.serverCfg.UserConnTimeout) * time.Second):
-			err = fmt.Errorf("timeout trying to get work connection")
+			err = fmt.Errorf("尝试获取工作连接超时")
 			xl.Warnf("%v", err)
 			return
 		}
@@ -304,7 +304,7 @@ func (ctl *Control) heartbeatWorker() {
 	xl := ctl.xl
 	go wait.Until(func() {
 		if time.Since(ctl.lastPing.Load().(time.Time)) > time.Duration(ctl.serverCfg.Transport.HeartbeatTimeout)*time.Second {
-			xl.Warnf("heartbeat timeout")
+			xl.Warnf("心跳超时")
 			ctl.conn.Close()
 			return
 		}
@@ -354,7 +354,7 @@ func (ctl *Control) worker() {
 	}
 
 	metrics.Server.CloseClient()
-	xl.Infof("client exit success")
+	xl.Infof("客户端退出成功")
 	close(ctl.doneCh)
 }
 
@@ -391,12 +391,12 @@ func (ctl *Control) handleNewProxy(m msg.Message) {
 		ProxyName: inMsg.ProxyName,
 	}
 	if err != nil {
-		xl.Warnf("new proxy [%s] type [%s] error: %v", inMsg.ProxyName, inMsg.ProxyType, err)
-		resp.Error = util.GenerateResponseErrorString(fmt.Sprintf("new proxy [%s] error", inMsg.ProxyName),
+		xl.Warnf("新隧道 [%s] 类型 [%s] 启动错误: %v", inMsg.ProxyName, inMsg.ProxyType, err)
+		resp.Error = util.GenerateResponseErrorString(fmt.Sprintf("新隧道 [%s] 启动错误", inMsg.ProxyName),
 			err, lo.FromPtr(ctl.serverCfg.DetailedErrorsToClient))
 	} else {
 		resp.RemoteAddr = remoteAddr
-		xl.Infof("new proxy [%s] type [%s] success", inMsg.ProxyName, inMsg.ProxyType)
+		xl.Infof("新隧道 [%s] 类型 [%s] 启动成功", inMsg.ProxyName, inMsg.ProxyType)
 		metrics.Server.NewProxy(inMsg.ProxyName, inMsg.ProxyType)
 	}
 	_ = ctl.msgDispatcher.Send(resp)
@@ -420,14 +420,14 @@ func (ctl *Control) handlePing(m msg.Message) {
 		err = ctl.authVerifier.VerifyPing(inMsg)
 	}
 	if err != nil {
-		xl.Warnf("received invalid ping: %v", err)
+		xl.Warnf("收到无效的心跳: %v", err)
 		_ = ctl.msgDispatcher.Send(&msg.Pong{
-			Error: util.GenerateResponseErrorString("invalid ping", err, lo.FromPtr(ctl.serverCfg.DetailedErrorsToClient)),
+			Error: util.GenerateResponseErrorString("无效的心跳", err, lo.FromPtr(ctl.serverCfg.DetailedErrorsToClient)),
 		})
 		return
 	}
 	ctl.lastPing.Store(time.Now())
-	xl.Debugf("receive heartbeat")
+	xl.Debugf("收到心跳")
 	_ = ctl.msgDispatcher.Send(&msg.Pong{})
 }
 
@@ -450,7 +450,7 @@ func (ctl *Control) handleCloseProxy(m msg.Message) {
 	xl := ctl.xl
 	inMsg := m.(*msg.CloseProxy)
 	_ = ctl.CloseProxy(inMsg)
-	xl.Infof("close proxy [%s] success", inMsg.ProxyName)
+	xl.Infof("关闭隧道 [%s]", inMsg.ProxyName)
 }
 
 func (ctl *Control) RegisterProxy(pxyMsg *msg.NewProxy) (remoteAddr string, err error) {
@@ -504,7 +504,7 @@ func (ctl *Control) RegisterProxy(pxyMsg *msg.NewProxy) (remoteAddr string, err 
 	}
 
 	if ctl.pxyManager.Exist(pxyMsg.ProxyName) {
-		err = fmt.Errorf("代理 [%s] 已存在", pxyMsg.ProxyName)
+		err = fmt.Errorf("隧道 [%s] 已存在", pxyMsg.ProxyName)
 		return
 	}
 

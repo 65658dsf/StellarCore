@@ -117,7 +117,7 @@ func GenerateResponseErrorString(summary string, err error, detailed bool) strin
 
 		// 常见错误消息映射
 		errorMap := map[string]string{
-			"proxy already exists":            "代理已存在",
+			"proxy already exists":            "隧道已存在",
 			"port already used":               "端口已被占用",
 			"port not allowed":                "端口不允许使用",
 			"invalid auth":                    "验证失败",
@@ -130,7 +130,7 @@ func GenerateResponseErrorString(summary string, err error, detailed bool) strin
 			"connection":                      "连接错误",
 			"timeout":                         "连接超时",
 			"port unavailable":                "端口不可用",
-			"proxy name conflict":             "代理名称冲突",
+			"proxy name conflict":             "隧道名称冲突",
 			"authorization":                   "授权失败",
 			"tls":                             "TLS连接错误",
 			"error port name format":          "端口名称格式错误",
@@ -151,7 +151,7 @@ func GenerateResponseErrorString(summary string, err error, detailed bool) strin
 		"register control error":      "注册控制连接错误",
 		"register visitor conn error": "注册访问者连接错误",
 		"invalid NewWorkConn":         "无效的工作连接",
-		"new proxy":                   "创建代理错误",
+		"new proxy":                   "创建隧道错误",
 		"parse conf error":            "解析配置错误",
 		"invalid ping":                "无效的心跳包",
 	}

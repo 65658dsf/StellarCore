@@ -213,7 +213,7 @@ func (pxy *BaseProxy) HandleTCPWorkConnection(workConn net.Conn, m *msg.StartWor
 	if extraInfo.ProxyProtocolHeader != nil {
 		if _, err := extraInfo.ProxyProtocolHeader.WriteTo(localConn); err != nil {
 			workConn.Close()
-			xl.Errorf("向本地连接写入代理协议头错误: %v", err)
+			xl.Errorf("向本地连接写入隧道协议头错误: %v", err)
 			return
 		}
 	}

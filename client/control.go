@@ -176,7 +176,7 @@ func (ctl *Control) handleNatHoleResp(m msg.Message) {
 	// Dispatch the NatHoleResp message to the related proxy.
 	ok := ctl.msgTransporter.DispatchWithType(inMsg, msg.TypeNameNatHoleResp, inMsg.TransactionID)
 	if !ok {
-		xl.Tracef("分发NatHoleResp消息到相关代理失败")
+		xl.Tracef("分发NatHoleResp消息到相关隧道失败")
 	}
 }
 

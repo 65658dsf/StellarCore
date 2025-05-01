@@ -183,20 +183,20 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 		address := net.JoinHostPort(cfg.ProxyBindAddr, strconv.Itoa(cfg.TCPMuxHTTPConnectPort))
 		l, err = net.Listen("tcp", address)
 		if err != nil {
-			return nil, fmt.Errorf("create server listener error, %v", err)
+			return nil, fmt.Errorf("创建服务器监听器错误, %v", err)
 		}
 
 		svr.rc.TCPMuxHTTPConnectMuxer, err = tcpmux.NewHTTPConnectTCPMuxer(l, cfg.TCPMuxPassthrough, vhostReadWriteTimeout)
 		if err != nil {
-			return nil, fmt.Errorf("create vhost tcpMuxer error, %v", err)
+			return nil, fmt.Errorf("创建 vhost tcpMuxer 错误, %v", err)
 		}
-		log.Infof("tcpmux httpconnect multiplexer listen on %s, passthough: %v", address, cfg.TCPMuxPassthrough)
+		log.Infof("tcpmux httpconnect multiplexer 监听在 %s, 透传: %v", address, cfg.TCPMuxPassthrough)
 	}
 
 	// Init all plugins
 	for _, p := range cfg.HTTPPlugins {
 		svr.pluginManager.Register(plugin.NewHTTPPluginOptions(p))
-		log.Infof("plugin [%s] has been registered", p.Name)
+		log.Infof("插件 [%s] 已注册", p.Name)
 	}
 	svr.rc.PluginManager = svr.pluginManager
 
@@ -229,7 +229,7 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 	address := net.JoinHostPort(cfg.BindAddr, strconv.Itoa(cfg.BindPort))
 	ln, err := net.Listen("tcp", address)
 	if err != nil {
-		return nil, fmt.Errorf("create server listener error, %v", err)
+		return nil, fmt.Errorf("创建服务器监听器错误, %v", err)
 	}
 
 	svr.muxer = mux.NewMux(ln)
@@ -240,16 +240,16 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 	ln = svr.muxer.DefaultListener()
 
 	svr.listener = ln
-	log.Infof("frps tcp listen on %s", address)
+	log.Infof("frps %s 启动成功", address)
 
 	// Listen for accepting connections from client using kcp protocol.
 	if cfg.KCPBindPort > 0 {
 		address := net.JoinHostPort(cfg.BindAddr, strconv.Itoa(cfg.KCPBindPort))
 		svr.kcpListener, err = netpkg.ListenKcp(address)
 		if err != nil {
-			return nil, fmt.Errorf("listen on kcp udp address %s error: %v", address, err)
+			return nil, fmt.Errorf("监听 kcp 地址 %s 错误: %v", address, err)
 		}
-		log.Infof("frps kcp listen on udp %s", address)
+		log.Infof("frps kcp 监听在 %s", address)
 	}
 
 	if cfg.QUICBindPort > 0 {
@@ -262,18 +262,18 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 			KeepAlivePeriod:    time.Duration(cfg.Transport.QUIC.KeepalivePeriod) * time.Second,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("listen on quic udp address %s error: %v", address, err)
+			return nil, fmt.Errorf("监听 quic 地址 %s 错误: %v", address, err)
 		}
-		log.Infof("frps quic listen on %s", address)
+		log.Infof("frps quic 监听在 %s", address)
 	}
 
 	if cfg.SSHTunnelGateway.BindPort > 0 {
 		sshGateway, err := ssh.NewGateway(cfg.SSHTunnelGateway, cfg.ProxyBindAddr, svr.sshTunnelListener)
 		if err != nil {
-			return nil, fmt.Errorf("create ssh gateway error: %v", err)
+			return nil, fmt.Errorf("创建 ssh 网关错误: %v", err)
 		}
 		svr.sshTunnelGateway = sshGateway
-		log.Infof("frps sshTunnelGateway listen on port %d", cfg.SSHTunnelGateway.BindPort)
+		log.Infof("frps sshTunnelGateway 监听在端口 %d", cfg.SSHTunnelGateway.BindPort)
 	}
 
 	// Listen for accepting connections from client using websocket protocol.
@@ -308,7 +308,7 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 		go func() {
 			_ = server.Serve(l)
 		}()
-		log.Infof("http service listen on %s", address)
+		log.Infof("http 服务监听在 %s", address)
 	}
 
 	// Create https vhost muxer.
@@ -322,7 +322,7 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 			if err != nil {
 				return nil, fmt.Errorf("create server listener error, %v", err)
 			}
-			log.Infof("https service listen on %s", address)
+			log.Infof("https 服务监听在 %s", address)
 		}
 
 		svr.rc.VhostHTTPSMuxer, err = vhost.NewHTTPSMuxer(l, vhostReadWriteTimeout)
@@ -367,9 +367,9 @@ func (svr *Service) Run(ctx context.Context) {
 	// run dashboard web server.
 	if svr.webServer != nil {
 		go func() {
-			log.Infof("dashboard listen on %s", svr.webServer.Address())
+			log.Infof("管理面板地址: %s", svr.webServer.Address())
 			if err := svr.webServer.Run(); err != nil {
-				log.Warnf("dashboard server exit with error: %v", err)
+				log.Warnf("管理面板退出错误: %v", err)
 			}
 		}()
 	}
