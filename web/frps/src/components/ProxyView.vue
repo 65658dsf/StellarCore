@@ -78,7 +78,7 @@
 
   <el-dialog
     v-model="dialogVisible"
-    destroy-on-close="true"
+    :destroy-on-close="true"
     :title="dialogVisibleName"
     width="700px">
     <Traffic :proxyName="dialogVisibleName" />
@@ -144,17 +144,6 @@ const confirmCloseProxy = () => {
   if (!selectedProxy.value) return
   
   closingProxy.value = true
-  
-  // 获取隧道名称
-  const fullName = selectedProxy.value.name
-  // 注释掉未使用的变量
-  // const nameParts = fullName.split('.')
-  // const username = nameParts[0]
-  // const proxyName = nameParts.length > 1 ? fullName.substring(username.length + 1) : fullName
-  
-  // 获取API凭据
-  // 注意：你需要根据实际情况获取或配置API凭据
-  // 这里假设有全局变量或者从其他地方获取的凭据
   
   // 构建关闭请求数据
   const closeData = {

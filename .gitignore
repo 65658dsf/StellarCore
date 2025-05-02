@@ -36,6 +36,7 @@ dist/
 .autogen_ssh_key
 client.crt
 client.key
+output/
 
 # Cache
 *.swp

@@ -1,5 +1,5 @@
-serverAddr = "127.0.0.1"
-serverPort = 7000
+serverAddr = "156.229.167.183"
+serverPort = 1000
 user = "NingMeng123"
 metadatas.token = "gznt4gwp6qdw49f82xgt4k6b56zvjwvv"
 
@@ -7,5 +7,5 @@ metadatas.token = "gznt4gwp6qdw49f82xgt4k6b56zvjwvv"
 name = "asdasd"
 type = "tcp"
 localIP = "127.0.0.1"
-localPort = 25565
-remotePort = 25545
+localPort = 12121
+remotePort = 18726

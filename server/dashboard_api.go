@@ -54,6 +54,8 @@ func (svr *Service) registerRouteHandlers(helper *httppkg.RouterRegisterHelper) 
 	subRouter.HandleFunc("/api/proxy/{type}", svr.apiProxyByType).Methods("GET")
 	subRouter.HandleFunc("/api/proxy/{type}/{name}", svr.apiProxyByTypeAndName).Methods("GET")
 	subRouter.HandleFunc("/api/traffic/{name}", svr.apiProxyTraffic).Methods("GET")
+	subRouter.HandleFunc("/api/traffic", svr.apiAllProxiesTraffic).Methods("GET")
+	subRouter.HandleFunc("/api/traffic/trend", svr.apiTrafficTrend).Methods("GET")
 	subRouter.HandleFunc("/api/proxies", svr.deleteProxies).Methods("DELETE")
 	subRouter.HandleFunc("/api/client/kick", svr.kickClient).Methods("POST")
 
@@ -457,4 +459,152 @@ func (svr *Service) kickClient(w http.ResponseWriter, r *http.Request) {
 	buf, _ = json.Marshal(&resp)
 	w.Write(buf)
 	return
+}
+
+// GET /api/traffic
+// 获取所有隧道的流量数据聚合
+func (svr *Service) apiAllProxiesTraffic(w http.ResponseWriter, r *http.Request) {
+	res := GeneralResponse{Code: 200}
+
+	defer func() {
+		log.Infof("Http response [%s]: code [%d]", r.URL.Path, res.Code)
+		w.WriteHeader(res.Code)
+		if len(res.Msg) > 0 {
+			_, _ = w.Write([]byte(res.Msg))
+		}
+	}()
+	log.Infof("Http request: [%s]", r.URL.Path)
+
+	// 获取所有隧道类型的隧道
+	var allProxies []string
+	proxyTypes := []string{"tcp", "udp", "http", "https", "stcp", "sudp", "xtcp", "tcpmux"}
+
+	for _, proxyType := range proxyTypes {
+		proxiesOfType := mem.StatsCollector.GetProxiesByType(proxyType)
+		for _, proxy := range proxiesOfType {
+			allProxies = append(allProxies, proxy.Name)
+		}
+	}
+
+	// 聚合数据结构
+	trafficResp := GetProxyTrafficResp{
+		Name:       "all",
+		TrafficIn:  make([]int64, 30), // 默认30个时间点
+		TrafficOut: make([]int64, 30), // 默认30个时间点
+	}
+
+	// 收集并合并所有隧道的流量数据
+	for _, proxyName := range allProxies {
+		metrics := mem.StatsCollector.GetProxyTraffic(proxyName)
+		if metrics == nil {
+			continue
+		}
+
+		// 确保长度一致
+		for i := 0; i < len(metrics.TrafficIn) && i < len(trafficResp.TrafficIn); i++ {
+			trafficResp.TrafficIn[i] += metrics.TrafficIn[i]
+		}
+
+		for i := 0; i < len(metrics.TrafficOut) && i < len(trafficResp.TrafficOut); i++ {
+			trafficResp.TrafficOut[i] += metrics.TrafficOut[i]
+		}
+	}
+
+	buf, _ := json.Marshal(&trafficResp)
+	res.Msg = string(buf)
+}
+
+// GET /api/traffic/trend
+// 流量趋势数据
+type TrafficTrendResp struct {
+	Timestamps []string `json:"timestamps"`
+	InData     []int64  `json:"inData"`
+	OutData    []int64  `json:"outData"`
+}
+
+func (svr *Service) apiTrafficTrend(w http.ResponseWriter, r *http.Request) {
+	res := GeneralResponse{Code: 200}
+
+	defer func() {
+		log.Infof("Http response [%s]: code [%d]", r.URL.Path, res.Code)
+		w.WriteHeader(res.Code)
+		if len(res.Msg) > 0 {
+			_, _ = w.Write([]byte(res.Msg))
+		}
+	}()
+	log.Infof("Http request: [%s]", r.URL.Path)
+
+	// 获取时间范围参数
+	timeRange := r.URL.Query().Get("range")
+	if timeRange == "" {
+		timeRange = "day" // 默认为一天
+	}
+
+	// 确定时间点数量
+	var pointsCount int
+	var interval time.Duration
+
+	switch timeRange {
+	case "day":
+		pointsCount = 24
+		interval = time.Hour
+	case "3days":
+		pointsCount = 72
+		interval = time.Hour
+	case "week":
+		pointsCount = 7
+		interval = 24 * time.Hour
+	case "14days":
+		pointsCount = 14
+		interval = 24 * time.Hour
+	case "month":
+		pointsCount = 30
+		interval = 24 * time.Hour
+	default:
+		pointsCount = 24
+		interval = time.Hour
+	}
+
+	// 准备响应数据
+	now := time.Now()
+	trendResp := TrafficTrendResp{
+		Timestamps: make([]string, pointsCount),
+		InData:     make([]int64, pointsCount),
+		OutData:    make([]int64, pointsCount),
+	}
+
+	// 获取所有隧道
+	var allProxies []string
+	proxyTypes := []string{"tcp", "udp", "http", "https", "stcp", "sudp", "xtcp", "tcpmux"}
+
+	for _, proxyType := range proxyTypes {
+		proxiesOfType := mem.StatsCollector.GetProxiesByType(proxyType)
+		for _, proxy := range proxiesOfType {
+			allProxies = append(allProxies, proxy.Name)
+		}
+	}
+
+	// 生成时间戳
+	for i := 0; i < pointsCount; i++ {
+		timePoint := now.Add(-time.Duration(pointsCount-1-i) * interval)
+		if interval >= 24*time.Hour {
+			trendResp.Timestamps[i] = timePoint.Format("01-02")
+		} else {
+			trendResp.Timestamps[i] = timePoint.Format("01-02 15:04")
+		}
+
+		// 收集这个时间点所有隧道的流量数据
+		for _, proxyName := range allProxies {
+			metrics := mem.StatsCollector.GetProxyTraffic(proxyName)
+			if metrics == nil || i >= len(metrics.TrafficIn) || i >= len(metrics.TrafficOut) {
+				continue
+			}
+
+			trendResp.InData[i] += metrics.TrafficIn[i]
+			trendResp.OutData[i] += metrics.TrafficOut[i]
+		}
+	}
+
+	buf, _ := json.Marshal(&trendResp)
+	res.Msg = string(buf)
 }
