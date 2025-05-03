@@ -49,7 +49,7 @@ var (
 	tunnels          []string
 )
 
-const api = "https://api.stellarfrp.top"
+const api = "https://preview.api.stellarfrp.top"
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "./frpc.ini", "需要被启动的隧道的配置文件。")
