@@ -425,22 +425,22 @@ install_stellarfrps() {
         fi
     done
 
-    while true; do
-        read -p "是否开启 HTTPS 端口 (443)? (y/n): " ENABLE_HTTPS
-        if [[ "$ENABLE_HTTPS" == "y" || "$ENABLE_HTTPS" == "Y" ]]; then
-            if check_port 443 "HTTPS端口"; then
-                break
-            fi
-        elif [[ "$ENABLE_HTTPS" == "n" || "$ENABLE_HTTPS" == "N" ]]; then
+while true; do
+    read -p "是否开启 HTTPS 端口 (443)? (y/n): " ENABLE_HTTPS
+    if [[ "$ENABLE_HTTPS" == "y" || "$ENABLE_HTTPS" == "Y" ]]; then
+        if check_port 443 "HTTPS端口"; then
             break
-        else
-            echo "请输入 y 或 n"
         fi
-    done
-    
-    # 生成配置文件
-    echo "生成配置文件..."
-    cat > /etc/stellarcore/frps.toml << EOF
+    elif [[ "$ENABLE_HTTPS" == "n" || "$ENABLE_HTTPS" == "N" ]]; then
+        break
+    else
+        echo "请输入 y 或 n"
+    fi
+done
+
+# 生成配置文件
+echo "生成配置文件..."
+cat > /etc/stellarcore/frps.toml << EOF
 bindPort = $BIND_PORT
 allowPorts = [
   { start = $MIN_PORT, end = $MAX_PORT },
@@ -449,20 +449,24 @@ webServer.addr = "0.0.0.0"
 webServer.port = $DASH_PORT
 webServer.user = "$DASH_USER"
 webServer.password = "$DASH_PWD"
+EOF
+
+# 根据用户选择，添加 HTTP/HTTPS 端口
+if [[ "$ENABLE_HTTP" == "y" || "$ENABLE_HTTP" == "Y" ]]; then
+    echo "vhostHTTPPort = 80" >> /etc/stellarcore/frps.toml
+fi
+
+if [[ "$ENABLE_HTTPS" == "y" || "$ENABLE_HTTPS" == "Y" ]]; then
+    echo "vhostHTTPSPort = 443" >> /etc/stellarcore/frps.toml
+fi
+
+# 继续添加剩余的配置
+cat >> /etc/stellarcore/frps.toml << EOF
 [[httpPlugins]]
 addr = "https://preview.api.stellarfrp.top"
 path = "/api/v1/proxy/auth"
 ops = ["Login", "NewProxy", "CloseProxy"]
 EOF
-
-    # 根据用户选择，添加 HTTP/HTTPS 端口
-    if [[ "$ENABLE_HTTP" == "y" || "$ENABLE_HTTP" == "Y" ]]; then
-        echo "vhostHTTPPort = 80" >> /etc/stellarcore/frps.toml
-    fi
-
-    if [[ "$ENABLE_HTTPS" == "y" || "$ENABLE_HTTPS" == "Y" ]]; then
-        echo "vhostHTTPSPort = 443" >> /etc/stellarcore/frps.toml
-    fi
 
     # 配置防火墙
     echo "配置防火墙..."
