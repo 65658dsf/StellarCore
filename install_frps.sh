@@ -346,6 +346,146 @@ update_stellarfrps() {
     # 下载并安装新版本
     download_and_install
     
+    # 询问用户是否需要修改配置文件
+    read -p "是否需要修改配置文件? (y/n): " MODIFY_CONFIG
+    
+    if [[ "$MODIFY_CONFIG" == "y" || "$MODIFY_CONFIG" == "Y" ]]; then
+        echo "开始修改配置文件..."
+        
+        # 获取用户输入并立即验证
+        while true; do
+            read -p "请输入服务绑定端口: " BIND_PORT
+            if validate_number "$BIND_PORT" "服务绑定端口" && validate_port "$BIND_PORT" "服务绑定端口" && check_port "$BIND_PORT" "服务绑定端口"; then
+                break
+            fi
+        done
+
+        while true; do
+            read -p "请输入开放端口范围最小值: " MIN_PORT
+            if validate_number "$MIN_PORT" "最小开放端口" && validate_port "$MIN_PORT" "最小开放端口"; then
+                break
+            fi
+        done
+
+        while true; do
+            read -p "请输入开放端口范围最大值: " MAX_PORT
+            if validate_number "$MAX_PORT" "最大开放端口" && validate_port "$MAX_PORT" "最大开放端口" && validate_port_range "$MIN_PORT" "$MAX_PORT"; then
+                break
+            fi
+        done
+
+        while true; do
+            read -p "请输入面板端口: " DASH_PORT
+            if validate_number "$DASH_PORT" "面板端口" && validate_port "$DASH_PORT" "面板端口" && check_port "$DASH_PORT" "面板端口"; then
+                break
+            fi
+        done
+        
+        read -p "请输入面板用户 (留空随机生成): " DASH_USER
+        read -p "请输入面板密码 (留空随机生成): " DASH_PWD
+
+        # 如果用户名为空，生成随机用户名
+        if [ -z "$DASH_USER" ]; then
+            DASH_USER="user_$(generate_random_string 8)"
+            echo "已生成随机用户名: $DASH_USER"
+        fi
+
+        # 如果密码为空，生成随机密码
+        if [ -z "$DASH_PWD" ]; then
+            DASH_PWD="$(generate_random_string 16)"
+            echo "已生成随机密码: $DASH_PWD"
+        fi
+
+        # 询问用户是否开启 HTTP/HTTPS 端口
+        while true; do
+            read -p "是否开启 HTTP 端口 (80)? (y/n): " ENABLE_HTTP
+            if [[ "$ENABLE_HTTP" == "y" || "$ENABLE_HTTP" == "Y" ]]; then
+                if check_port 80 "HTTP端口"; then
+                    break
+                fi
+            elif [[ "$ENABLE_HTTP" == "n" || "$ENABLE_HTTP" == "N" ]]; then
+                break
+            else
+                echo "请输入 y 或 n"
+            fi
+        done
+
+        while true; do
+            read -p "是否开启 HTTPS 端口 (443)? (y/n): " ENABLE_HTTPS
+            if [[ "$ENABLE_HTTPS" == "y" || "$ENABLE_HTTPS" == "Y" ]]; then
+                if check_port 443 "HTTPS端口"; then
+                    break
+                fi
+            elif [[ "$ENABLE_HTTPS" == "n" || "$ENABLE_HTTPS" == "N" ]]; then
+                break
+            else
+                echo "请输入 y 或 n"
+            fi
+        done
+
+        # 生成配置文件
+        echo "生成配置文件..."
+        cat > /etc/stellarcore/frps.toml << EOF
+bindPort = $BIND_PORT
+allowPorts = [
+  { start = $MIN_PORT, end = $MAX_PORT },
+]
+webServer.addr = "0.0.0.0"
+webServer.port = $DASH_PORT
+webServer.user = "$DASH_USER"
+webServer.password = "$DASH_PWD"
+EOF
+
+        # 根据用户选择，添加 HTTP/HTTPS 端口
+        if [[ "$ENABLE_HTTP" == "y" || "$ENABLE_HTTP" == "Y" ]]; then
+            echo "vhostHTTPPort = 80" >> /etc/stellarcore/frps.toml
+        fi
+
+        if [[ "$ENABLE_HTTPS" == "y" || "$ENABLE_HTTPS" == "Y" ]]; then
+            echo "vhostHTTPSPort = 443" >> /etc/stellarcore/frps.toml
+        fi
+
+        # 继续添加剩余的配置
+        cat >> /etc/stellarcore/frps.toml << EOF
+[[httpPlugins]]
+addr = "https://api.stellarfrp.top"
+path = "/api/v1/proxy/auth"
+ops = ["Login", "NewProxy", "CloseProxy"]
+EOF
+
+        echo "配置文件已更新"
+        
+        # 配置防火墙
+        echo "配置防火墙..."
+        if command -v firewall-cmd &> /dev/null; then
+            firewall-cmd --permanent --add-port=$BIND_PORT/tcp
+            firewall-cmd --permanent --add-port=$DASH_PORT/tcp
+            firewall-cmd --permanent --add-port=$MIN_PORT-$MAX_PORT/tcp
+            firewall-cmd --reload
+        elif command -v ufw &> /dev/null; then
+            ufw allow $BIND_PORT/tcp
+            ufw allow $DASH_PORT/tcp
+            ufw allow $MIN_PORT:$MAX_PORT/tcp
+            ufw reload
+        else
+            echo "警告：未找到支持的防火墙工具，请手动开放端口"
+        fi
+        
+        # 显示配置信息
+        PUBLIC_IP=$(curl -s https://api.ipify.org || curl -s https://ifconfig.me || curl -s https://api.ip.sb/ip)
+        echo "
+=== 重要配置信息(请将以下信息发送到管理员) ===
+服务绑定端口: $BIND_PORT
+开放端口范围: $MIN_PORT-$MAX_PORT
+面板访问地址: http://${PUBLIC_IP}:$DASH_PORT
+面板用户名: $DASH_USER
+面板密码: $DASH_PWD
+==================
+"
+    else
+        echo "保留原有配置文件"
+    fi
+    
     # 重启服务
     systemctl start stellarfrps
     
@@ -463,7 +603,7 @@ fi
 # 继续添加剩余的配置
 cat >> /etc/stellarcore/frps.toml << EOF
 [[httpPlugins]]
-addr = "https://preview.api.stellarfrp.top"
+addr = "https://api.stellarfrp.top"
 path = "/api/v1/proxy/auth"
 ops = ["Login", "NewProxy", "CloseProxy"]
 EOF
