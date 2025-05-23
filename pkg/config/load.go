@@ -187,7 +187,7 @@ func LoadServerConfig(path string, strict bool) (*v1.ServerConfig, bool, error) 
 	return svrCfg, isLegacyFormat, nil
 }
 
-func LoadClientConfig(path string, strict bool) (
+func LoadClientConfig(path string, strict bool, alreadyRead ...bool) (
 	*v1.ClientCommonConfig,
 	[]v1.ProxyConfigurer,
 	[]v1.VisitorConfigurer,
@@ -215,8 +215,14 @@ func LoadClientConfig(path string, strict bool) (
 		isLegacyFormat = true
 	} else {
 		allCfg := v1.ClientConfig{}
-		if err := LoadConfigureFromFile(path, &allCfg, strict); err != nil {
-			return nil, nil, nil, false, err
+		if alreadyRead[0] {
+			if err := LoadConfigure([]byte(path), &allCfg, strict); err != nil {
+				return nil, nil, nil, false, err
+			}
+		} else {
+			if err := LoadConfigureFromFile(path, &allCfg, strict); err != nil {
+				return nil, nil, nil, false, err
+			}
 		}
 		cliCfg = &allCfg.ClientCommonConfig
 		for _, c := range allCfg.Proxies {

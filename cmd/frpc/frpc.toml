@@ -1,5 +1,5 @@
-serverAddr = "156.229.167.183"
-serverPort = 1000
+serverAddr = "127.0.0.1"
+serverPort = 7000
 user = "NingMeng123"
 metadatas.token = "gznt4gwp6qdw49f82xgt4k6b56zvjwvv"
 
@@ -9,3 +9,8 @@ type = "tcp"
 localIP = "127.0.0.1"
 localPort = 12121
 remotePort = 18726
+[proxies.transport]
+useEncryption = true
+useCompression = false
+bandwidthLimit = "600MB"
+bandwidthLimitMode = "server"

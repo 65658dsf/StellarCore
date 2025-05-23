@@ -9,5 +9,5 @@ webServer.password = "NingMeng080317"
 vhostHTTPPort = 80
 [[httpPlugins]]
 addr = "http://127.0.0.1:8080"
-path = "/api/v1/proxy/auth"
-ops = ["Login", "NewProxy", "CloseProxy"]
+path = "/"
+ops = ["NewProxy", "CloseProxy"]

@@ -49,7 +49,7 @@ var (
 	tunnels          []string
 )
 
-const api = "https://preview.api.stellarfrp.top"
+const api = "https://api.stellarfrp.top"
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "./frpc.ini", "需要被启动的隧道的配置文件。")
@@ -266,7 +266,7 @@ func handleTermSignal(svr *client.Service) {
 }
 
 func runClient(cfgFilePath string, alreadyRead bool) error {
-	cfg, proxyCfgs, visitorCfgs, isLegacyFormat, err := config.LoadClientConfig(cfgFilePath, strictConfigMode)
+	cfg, proxyCfgs, visitorCfgs, isLegacyFormat, err := config.LoadClientConfig(cfgFilePath, strictConfigMode, alreadyRead)
 	if err != nil {
 		return err
 	}
