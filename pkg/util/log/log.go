@@ -18,6 +18,9 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"runtime"
+	"strconv"
+	"sync"
 
 	"github.com/fatedier/golib/log"
 )
@@ -30,18 +33,65 @@ var (
 	ErrorLevel = log.ErrorLevel
 )
 
-var Logger *log.Logger
+var (
+	Logger       *log.Logger
+	defaultLevel = log.InfoLevel
+	logRoutes    = make(map[uint64]io.Writer)
+	routeMutex   sync.RWMutex
+)
 
 func init() {
 	Logger = log.New(
 		log.WithCaller(true),
 		log.AddCallerSkip(1),
-		log.WithLevel(log.InfoLevel),
+		log.WithLevel(defaultLevel),
+		log.WithOutput(&dynamicWriter{}),
 	)
 }
 
+type dynamicWriter struct{}
+
+func (w *dynamicWriter) Write(p []byte) (n int, err error) {
+	routeMutex.RLock()
+	defer routeMutex.RUnlock()
+
+	goid := getGoroutineID()
+	if target, ok := logRoutes[goid]; ok {
+		return target.Write(p)
+	}
+	return os.Stderr.Write(p)
+}
+
+func getGoroutineID() uint64 {
+	b := make([]byte, 64)
+	b = b[:runtime.Stack(b, false)]
+	b = bytes.TrimPrefix(b, []byte("goroutine "))
+	b = b[:bytes.IndexByte(b, ' ')]
+	n, _ := strconv.ParseUint(string(b), 10, 64)
+	return n
+}
+
+func SetLogRoute(w io.Writer) {
+	routeMutex.Lock()
+	defer routeMutex.Unlock()
+	logRoutes[getGoroutineID()] = w
+}
+
+func RemoveLogRoute() {
+	routeMutex.Lock()
+	defer routeMutex.Unlock()
+	delete(logRoutes, getGoroutineID())
+}
+
 func InitLogger(logPath string, levelStr string, maxDays int, disableLogColor bool) {
-	options := []log.Option{}
+	level, err := log.ParseLevel(levelStr)
+	if err != nil {
+		level = log.InfoLevel
+	}
+	defaultLevel = level
+
+	options := []log.Option{log.WithLevel(level)}
+	
 	if logPath == "console" {
 		if !disableLogColor {
 			options = append(options,
@@ -60,11 +110,6 @@ func InitLogger(logPath string, levelStr string, maxDays int, disableLogColor bo
 		options = append(options, log.WithOutput(writer))
 	}
 
-	level, err := log.ParseLevel(levelStr)
-	if err != nil {
-		level = log.InfoLevel
-	}
-	options = append(options, log.WithLevel(level))
 	Logger = Logger.WithOptions(options...)
 }
 
@@ -73,6 +118,7 @@ func InitLoggerWithWriter(writer io.Writer, levelStr string) {
 	if err != nil {
 		level = log.InfoLevel
 	}
+	defaultLevel = level
 	Logger = Logger.WithOptions(
 		log.WithOutput(writer),
 		log.WithLevel(level),

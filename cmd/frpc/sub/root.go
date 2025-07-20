@@ -64,14 +64,11 @@ var rootCmd = &cobra.Command{
 			return nil
 		}
 
-		// 如果 cfgDir 非空，则为 cfgDir 目录下的每个配置文件启动一个 frpc 服务。
-		// 注意：此功能仅用于测试，不保证稳定性。
 		if token != "" && len(tunnelId) != 0 {
 			var err error
 			tunnelData, err = getAllTunnels(token)
 			if err != nil {
 				fmt.Printf("错误: %v\n", err)
-				// 等待用户按任意键退出
 				fmt.Println("\n按任意键退出...")
 				fmt.Scanln()
 				return err
@@ -87,7 +84,6 @@ var rootCmd = &cobra.Command{
 				return nil
 			}
 
-			// 此处不显示命令用法。
 			err := runClient(cfgFile)
 			if err != nil {
 				fmt.Println(err)
@@ -124,24 +120,22 @@ func runMultipleClientsWithContent(Contents map[string]string) {
 	for id, content := range Contents {
 		wg.Add(1)
 		time.Sleep(time.Millisecond)
-		go func() {
+		go func(id string, content string) {
 			defer wg.Done()
 			err := runClientFromConfigContent(content)
 			if err != nil {
 				log.Errorf("frpc 服务运行失败，隧道id：%s\n", id)
 			}
-		}()
+		}(id, content)
 	}
 	wg.Wait()
 }
 
 func Execute() error {
-	// 目测没用，先测试一下
 	if shouldRunInteractiveMode() {
 		err := runInteractiveMode()
 		if err != nil {
 			fmt.Printf("错误: %v\n", err)
-			// 等待用户按任意键退出
 			fmt.Println("\n按任意键退出...")
 			fmt.Scanln()
 			return err
@@ -154,7 +148,6 @@ func Execute() error {
 	return nil
 }
 
-// 捕获退出信号
 func handleTermSignal(svr *client.Service) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
@@ -202,23 +195,36 @@ func RunClientFromConfigContentWithPipe(content string) (func(), func(), io.Read
 	if err != nil {
 		return nil, nil, nil, err
 	}
+
+	log.SetLogRoute(w)
+
 	cfg, proxyCfgs, visitorCfgs, err := config.LoadClientConfigFromContent(content, strictConfigMode)
 	if err != nil {
+		log.RemoveLogRoute()
 		return nil, nil, nil, err
 	}
+
 	warning, err := validation.ValidateAllClientConfig(cfg, proxyCfgs, visitorCfgs)
 	if warning != nil {
 		fmt.Printf("警告：%v\n", warning)
 	}
 	if err != nil {
+		log.RemoveLogRoute()
 		return nil, nil, nil, err
 	}
-	log.InitLoggerWithWriter(w, cfg.Log.Level)
+
 	run, svr, err := startServiceFromConfigContent(cfg, proxyCfgs, visitorCfgs)
 	if err != nil {
+		log.RemoveLogRoute()
 		return nil, nil, nil, err
 	}
-	return run, func() {
+
+	wrappedRun := func() {
+		defer log.RemoveLogRoute()
+		run()
+	}
+
+	return wrappedRun, func() {
 		svr.GracefulClose(500 * time.Millisecond)
 	}, r, nil
 }
@@ -246,7 +252,6 @@ func startService(
 	}
 
 	shouldGracefulClose := cfg.Transport.Protocol == "kcp" || cfg.Transport.Protocol == "quic"
-	// 如果使用 kcp 或 quic，则捕获退出信号。
 	if shouldGracefulClose {
 		go handleTermSignal(svr)
 	}
