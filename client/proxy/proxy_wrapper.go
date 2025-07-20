@@ -25,12 +25,12 @@ import (
 
 	"github.com/fatedier/golib/errors"
 
-	"github.com/fatedier/frp/client/event"
-	"github.com/fatedier/frp/client/health"
-	v1 "github.com/fatedier/frp/pkg/config/v1"
-	"github.com/fatedier/frp/pkg/msg"
-	"github.com/fatedier/frp/pkg/transport"
-	"github.com/fatedier/frp/pkg/util/xlog"
+	"github.com/65658dsf/StellarCore/client/event"
+	"github.com/65658dsf/StellarCore/client/health"
+	v1 "github.com/65658dsf/StellarCore/pkg/config/v1"
+	"github.com/65658dsf/StellarCore/pkg/msg"
+	"github.com/65658dsf/StellarCore/pkg/transport"
+	"github.com/65658dsf/StellarCore/pkg/util/xlog"
 )
 
 const (

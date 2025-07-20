@@ -23,8 +23,8 @@ import (
 
 	"gopkg.in/ini.v1"
 
-	legacyauth "github.com/fatedier/frp/pkg/auth/legacy"
-	"github.com/fatedier/frp/pkg/util/util"
+	legacyauth "github.com/65658dsf/StellarCore/pkg/auth/legacy"
+	"github.com/65658dsf/StellarCore/pkg/util/util"
 )
 
 // ClientCommonConf is the configuration parsed from ini.

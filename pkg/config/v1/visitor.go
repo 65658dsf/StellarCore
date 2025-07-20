@@ -23,7 +23,7 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/fatedier/frp/pkg/util/util"
+	"github.com/65658dsf/StellarCore/pkg/util/util"
 )
 
 type VisitorTransport struct {

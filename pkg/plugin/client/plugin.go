@@ -24,7 +24,7 @@ import (
 	"github.com/fatedier/golib/errors"
 	pp "github.com/pires/go-proxyproto"
 
-	v1 "github.com/fatedier/frp/pkg/config/v1"
+	v1 "github.com/65658dsf/StellarCore/pkg/config/v1"
 )
 
 // Creators is used for create plugins to handle connections.

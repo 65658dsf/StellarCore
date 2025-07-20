@@ -1,4 +1,4 @@
-module github.com/fatedier/frp
+module github.com/65658dsf/StellarCore
 
 go 1.23.0
 

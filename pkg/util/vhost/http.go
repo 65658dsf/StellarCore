@@ -32,8 +32,8 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
-	httppkg "github.com/fatedier/frp/pkg/util/http"
-	"github.com/fatedier/frp/pkg/util/log"
+	httppkg "github.com/65658dsf/StellarCore/pkg/util/http"
+	"github.com/65658dsf/StellarCore/pkg/util/log"
 )
 
 var ErrNoRouteFound = errors.New("no route found")

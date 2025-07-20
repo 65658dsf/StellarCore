@@ -29,13 +29,13 @@ import (
 	pp "github.com/pires/go-proxyproto"
 	"golang.org/x/time/rate"
 
-	"github.com/fatedier/frp/pkg/config/types"
-	v1 "github.com/fatedier/frp/pkg/config/v1"
-	"github.com/fatedier/frp/pkg/msg"
-	plugin "github.com/fatedier/frp/pkg/plugin/client"
-	"github.com/fatedier/frp/pkg/transport"
-	"github.com/fatedier/frp/pkg/util/limit"
-	"github.com/fatedier/frp/pkg/util/xlog"
+	"github.com/65658dsf/StellarCore/pkg/config/types"
+	v1 "github.com/65658dsf/StellarCore/pkg/config/v1"
+	"github.com/65658dsf/StellarCore/pkg/msg"
+	plugin "github.com/65658dsf/StellarCore/pkg/plugin/client"
+	"github.com/65658dsf/StellarCore/pkg/transport"
+	"github.com/65658dsf/StellarCore/pkg/util/limit"
+	"github.com/65658dsf/StellarCore/pkg/util/xlog"
 )
 
 var proxyFactoryRegistry = map[reflect.Type]func(*BaseProxy, v1.ProxyConfigurer) Proxy{}

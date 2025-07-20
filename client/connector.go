@@ -29,10 +29,10 @@ import (
 	quic "github.com/quic-go/quic-go"
 	"github.com/samber/lo"
 
-	v1 "github.com/fatedier/frp/pkg/config/v1"
-	"github.com/fatedier/frp/pkg/transport"
-	netpkg "github.com/fatedier/frp/pkg/util/net"
-	"github.com/fatedier/frp/pkg/util/xlog"
+	v1 "github.com/65658dsf/StellarCore/pkg/config/v1"
+	"github.com/65658dsf/StellarCore/pkg/transport"
+	netpkg "github.com/65658dsf/StellarCore/pkg/util/net"
+	"github.com/65658dsf/StellarCore/pkg/util/xlog"
 )
 
 // Connector is an interface for establishing connections to the server.

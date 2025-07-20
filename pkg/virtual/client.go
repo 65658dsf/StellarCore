@@ -18,10 +18,10 @@ import (
 	"context"
 	"net"
 
-	"github.com/fatedier/frp/client"
-	v1 "github.com/fatedier/frp/pkg/config/v1"
-	"github.com/fatedier/frp/pkg/msg"
-	netpkg "github.com/fatedier/frp/pkg/util/net"
+	"github.com/65658dsf/StellarCore/client"
+	v1 "github.com/65658dsf/StellarCore/pkg/config/v1"
+	"github.com/65658dsf/StellarCore/pkg/msg"
+	netpkg "github.com/65658dsf/StellarCore/pkg/util/net"
 )
 
 type ClientOptions struct {

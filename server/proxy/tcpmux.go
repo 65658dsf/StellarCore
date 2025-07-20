@@ -20,9 +20,9 @@ import (
 	"reflect"
 	"strings"
 
-	v1 "github.com/fatedier/frp/pkg/config/v1"
-	"github.com/fatedier/frp/pkg/util/util"
-	"github.com/fatedier/frp/pkg/util/vhost"
+	v1 "github.com/65658dsf/StellarCore/pkg/config/v1"
+	"github.com/65658dsf/StellarCore/pkg/util/util"
+	"github.com/65658dsf/StellarCore/pkg/util/vhost"
 )
 
 func init() {

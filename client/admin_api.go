@@ -26,12 +26,12 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/fatedier/frp/client/proxy"
-	"github.com/fatedier/frp/pkg/config"
-	"github.com/fatedier/frp/pkg/config/v1/validation"
-	httppkg "github.com/fatedier/frp/pkg/util/http"
-	"github.com/fatedier/frp/pkg/util/log"
-	netpkg "github.com/fatedier/frp/pkg/util/net"
+	"github.com/65658dsf/StellarCore/client/proxy"
+	"github.com/65658dsf/StellarCore/pkg/config"
+	"github.com/65658dsf/StellarCore/pkg/config/v1/validation"
+	httppkg "github.com/65658dsf/StellarCore/pkg/util/http"
+	"github.com/65658dsf/StellarCore/pkg/util/log"
+	netpkg "github.com/65658dsf/StellarCore/pkg/util/net"
 )
 
 type GeneralResponse struct {

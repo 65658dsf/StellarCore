@@ -19,10 +19,10 @@ import (
 	"net"
 	"sync"
 
-	v1 "github.com/fatedier/frp/pkg/config/v1"
-	"github.com/fatedier/frp/pkg/transport"
-	netpkg "github.com/fatedier/frp/pkg/util/net"
-	"github.com/fatedier/frp/pkg/util/xlog"
+	v1 "github.com/65658dsf/StellarCore/pkg/config/v1"
+	"github.com/65658dsf/StellarCore/pkg/transport"
+	netpkg "github.com/65658dsf/StellarCore/pkg/util/net"
+	"github.com/65658dsf/StellarCore/pkg/util/xlog"
 )
 
 // Helper wraps some functions for visitor to use.

@@ -24,9 +24,9 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/fatedier/frp/assets"
-	v1 "github.com/fatedier/frp/pkg/config/v1"
-	netpkg "github.com/fatedier/frp/pkg/util/net"
+	"github.com/65658dsf/StellarCore/assets"
+	v1 "github.com/65658dsf/StellarCore/pkg/config/v1"
+	netpkg "github.com/65658dsf/StellarCore/pkg/util/net"
 )
 
 var (
