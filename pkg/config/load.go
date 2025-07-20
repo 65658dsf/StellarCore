@@ -111,6 +111,10 @@ func LoadConfigureFromFile(path string, c any, strict bool) error {
 	return LoadConfigure(content, c, strict)
 }
 
+func LoadConfigureFromContent(content string, c any, strict bool) error {
+	return LoadConfigure([]byte(content), c, strict)
+}
+
 // LoadConfigure loads configuration from bytes and unmarshal into c.
 // Now it supports json, yaml and toml format.
 func LoadConfigure(b []byte, c any, strict bool) error {
@@ -187,7 +191,7 @@ func LoadServerConfig(path string, strict bool) (*v1.ServerConfig, bool, error) 
 	return svrCfg, isLegacyFormat, nil
 }
 
-func LoadClientConfig(path string, strict bool, alreadyRead ...bool) (
+func LoadClientConfig(path string, strict bool) (
 	*v1.ClientCommonConfig,
 	[]v1.ProxyConfigurer,
 	[]v1.VisitorConfigurer,
@@ -215,14 +219,8 @@ func LoadClientConfig(path string, strict bool, alreadyRead ...bool) (
 		isLegacyFormat = true
 	} else {
 		allCfg := v1.ClientConfig{}
-		if alreadyRead[0] {
-			if err := LoadConfigure([]byte(path), &allCfg, strict); err != nil {
-				return nil, nil, nil, false, err
-			}
-		} else {
-			if err := LoadConfigureFromFile(path, &allCfg, strict); err != nil {
-				return nil, nil, nil, false, err
-			}
+		if err := LoadConfigureFromFile(path, &allCfg, strict); err != nil {
+			return nil, nil, nil, false, err
 		}
 		cliCfg = &allCfg.ClientCommonConfig
 		for _, c := range allCfg.Proxies {
@@ -233,8 +231,8 @@ func LoadClientConfig(path string, strict bool, alreadyRead ...bool) (
 		}
 	}
 
-	// Load additional config from includes.
-	// legacy ini format already handle this in ParseClientConfig.
+	// 从 includes 字段加载额外的配置文件。
+	// legacy ini 格式已经在 ParseClientConfig 中处理了此功能。
 	if len(cliCfg.IncludeConfigFiles) > 0 && !isLegacyFormat {
 		extProxyCfgs, extVisitorCfgs, err := LoadAdditionalClientConfigs(cliCfg.IncludeConfigFiles, isLegacyFormat, strict)
 		if err != nil {
@@ -244,7 +242,7 @@ func LoadClientConfig(path string, strict bool, alreadyRead ...bool) (
 		visitorCfgs = append(visitorCfgs, extVisitorCfgs...)
 	}
 
-	// Filter by start
+	// 根据 start 字段进行过滤
 	if len(cliCfg.Start) > 0 {
 		startSet := sets.New(cliCfg.Start...)
 		proxyCfgs = lo.Filter(proxyCfgs, func(c v1.ProxyConfigurer, _ int) bool {
@@ -265,6 +263,59 @@ func LoadClientConfig(path string, strict bool, alreadyRead ...bool) (
 		c.Complete(cliCfg)
 	}
 	return cliCfg, proxyCfgs, visitorCfgs, isLegacyFormat, nil
+}
+
+func LoadClientConfigFromContent(content string, strict bool) (
+	*v1.ClientCommonConfig,
+	[]v1.ProxyConfigurer,
+	[]v1.VisitorConfigurer,
+	error,
+) {
+	var (
+		cliCfg         *v1.ClientCommonConfig
+		proxyCfgs      = make([]v1.ProxyConfigurer, 0)
+		visitorCfgs    = make([]v1.VisitorConfigurer, 0)
+	)
+
+	allCfg := v1.ClientConfig{}
+	if err := LoadConfigureFromContent(content, &allCfg, strict); err != nil {
+		return nil, nil, nil, err
+	}
+	cliCfg = &allCfg.ClientCommonConfig
+	for _, c := range allCfg.Proxies {
+		proxyCfgs = append(proxyCfgs, c.ProxyConfigurer)
+	}
+	for _, c := range allCfg.Visitors {
+		visitorCfgs = append(visitorCfgs, c.VisitorConfigurer)
+	}
+
+	extProxyCfgs, extVisitorCfgs, err := LoadAdditionalClientConfigs(cliCfg.IncludeConfigFiles, false, strict)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	proxyCfgs = append(proxyCfgs, extProxyCfgs...)
+	visitorCfgs = append(visitorCfgs, extVisitorCfgs...)
+
+	if len(cliCfg.Start) > 0 {
+		startSet := sets.New(cliCfg.Start...)
+		proxyCfgs = lo.Filter(proxyCfgs, func(c v1.ProxyConfigurer, _ int) bool {
+			return startSet.Has(c.GetBaseConfig().Name)
+		})
+		visitorCfgs = lo.Filter(visitorCfgs, func(c v1.VisitorConfigurer, _ int) bool {
+			return startSet.Has(c.GetBaseConfig().Name)
+		})
+	}
+
+	if cliCfg != nil {
+		cliCfg.Complete()
+	}
+	for _, c := range proxyCfgs {
+		c.Complete(cliCfg.User)
+	}
+	for _, c := range visitorCfgs {
+		c.Complete(cliCfg)
+	}
+	return cliCfg, proxyCfgs, visitorCfgs, nil
 }
 
 func LoadAdditionalClientConfigs(paths []string, isLegacyFormat bool, strict bool) ([]v1.ProxyConfigurer, []v1.VisitorConfigurer, error) {
