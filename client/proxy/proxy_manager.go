@@ -23,11 +23,11 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/fatedier/frp/client/event"
-	v1 "github.com/fatedier/frp/pkg/config/v1"
-	"github.com/fatedier/frp/pkg/msg"
-	"github.com/fatedier/frp/pkg/transport"
-	"github.com/fatedier/frp/pkg/util/xlog"
+	"github.com/65658dsf/StellarCore/client/event"
+	v1 "github.com/65658dsf/StellarCore/pkg/config/v1"
+	"github.com/65658dsf/StellarCore/pkg/msg"
+	"github.com/65658dsf/StellarCore/pkg/transport"
+	"github.com/65658dsf/StellarCore/pkg/util/xlog"
 )
 
 type Manager struct {

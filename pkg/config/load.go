@@ -29,11 +29,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/yaml"
 
-	"github.com/fatedier/frp/pkg/config/legacy"
-	v1 "github.com/fatedier/frp/pkg/config/v1"
-	"github.com/fatedier/frp/pkg/config/v1/validation"
-	"github.com/fatedier/frp/pkg/msg"
-	"github.com/fatedier/frp/pkg/util/util"
+	"github.com/65658dsf/StellarCore/pkg/config/legacy"
+	v1 "github.com/65658dsf/StellarCore/pkg/config/v1"
+	"github.com/65658dsf/StellarCore/pkg/config/v1/validation"
+	"github.com/65658dsf/StellarCore/pkg/msg"
+	"github.com/65658dsf/StellarCore/pkg/util/util"
 )
 
 var glbEnvs map[string]string
@@ -272,9 +272,9 @@ func LoadClientConfigFromContent(content string, strict bool) (
 	error,
 ) {
 	var (
-		cliCfg         *v1.ClientCommonConfig
-		proxyCfgs      = make([]v1.ProxyConfigurer, 0)
-		visitorCfgs    = make([]v1.VisitorConfigurer, 0)
+		cliCfg      *v1.ClientCommonConfig
+		proxyCfgs   = make([]v1.ProxyConfigurer, 0)
+		visitorCfgs = make([]v1.VisitorConfigurer, 0)
 	)
 
 	allCfg := v1.ClientConfig{}

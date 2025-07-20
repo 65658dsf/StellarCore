@@ -17,8 +17,8 @@ package sub
 import (
 	"context"
 	"fmt"
-	"io/fs"
 	"io"
+	"io/fs"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -28,12 +28,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/fatedier/frp/client"
-	"github.com/fatedier/frp/pkg/config"
-	v1 "github.com/fatedier/frp/pkg/config/v1"
-	"github.com/fatedier/frp/pkg/config/v1/validation"
-	"github.com/fatedier/frp/pkg/util/log"
-	"github.com/fatedier/frp/pkg/util/version"
+	"github.com/65658dsf/StellarCore/client"
+	"github.com/65658dsf/StellarCore/pkg/config"
+	v1 "github.com/65658dsf/StellarCore/pkg/config/v1"
+	"github.com/65658dsf/StellarCore/pkg/config/v1/validation"
+	"github.com/65658dsf/StellarCore/pkg/util/log"
+	"github.com/65658dsf/StellarCore/pkg/util/version"
 )
 
 var (
@@ -43,7 +43,7 @@ var (
 	strictConfigMode bool
 	token            string
 	tunnelId         []string
-	tunnelData      map[string]Tunnel
+	tunnelData       map[string]Tunnel
 )
 
 func init() {
@@ -106,7 +106,7 @@ func runMultipleClients(cfgDir string) error {
 		}
 		wg.Add(1)
 		time.Sleep(time.Millisecond)
-		go func() {	
+		go func() {
 			defer wg.Done()
 			err := runClient(path)
 			if err != nil {
@@ -181,7 +181,7 @@ func runClient(cfgFilePath string) error {
 	return startService(cfg, proxyCfgs, visitorCfgs, cfgFilePath)
 }
 
-func runClientFromConfigContent(content string) (error) {
+func runClientFromConfigContent(content string) error {
 	cfg, proxyCfgs, visitorCfgs, err := config.LoadClientConfigFromContent(content, strictConfigMode)
 	if err != nil {
 		return err

@@ -6,7 +6,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/fatedier/frp/pkg/util/log"
+	"github.com/65658dsf/StellarCore/pkg/util/log"
 )
 
 const api = "https://api.stellarfrp.top"

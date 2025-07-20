@@ -15,7 +15,7 @@
 package plugin
 
 import (
-	"github.com/fatedier/frp/pkg/msg"
+	"github.com/65658dsf/StellarCore/pkg/msg"
 )
 
 type Request struct {

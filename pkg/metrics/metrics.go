@@ -15,7 +15,7 @@
 package metrics
 
 import (
-	"github.com/fatedier/frp/pkg/metrics/aggregate"
+	"github.com/65658dsf/StellarCore/pkg/metrics/aggregate"
 )
 
 var (

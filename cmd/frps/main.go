@@ -15,9 +15,9 @@
 package main
 
 import (
-	_ "github.com/fatedier/frp/assets/frps"
-	_ "github.com/fatedier/frp/pkg/metrics"
-	"github.com/fatedier/frp/pkg/util/system"
+	_ "github.com/65658dsf/StellarCore/assets/frps"
+	_ "github.com/65658dsf/StellarCore/pkg/metrics"
+	"github.com/65658dsf/StellarCore/pkg/util/system"
 )
 
 func main() {

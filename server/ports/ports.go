@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fatedier/frp/pkg/config/types"
+	"github.com/65658dsf/StellarCore/pkg/config/types"
 )
 
 const (

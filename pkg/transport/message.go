@@ -21,7 +21,7 @@ import (
 
 	"github.com/fatedier/golib/errors"
 
-	"github.com/fatedier/frp/pkg/msg"
+	"github.com/65658dsf/StellarCore/pkg/msg"
 )
 
 type MessageTransporter interface {

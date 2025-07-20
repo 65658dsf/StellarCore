@@ -82,7 +82,7 @@ linters-settings:
     sections:
     - standard
     - default
-    - prefix(github.com/fatedier/frp/)
+    - prefix(github.com/65658dsf/StellarCore/)
   gosec:
     severity: "low"
     confidence: "low"

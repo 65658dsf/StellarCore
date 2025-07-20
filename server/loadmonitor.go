@@ -24,8 +24,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fatedier/frp/pkg/metrics/mem"
-	"github.com/fatedier/frp/pkg/util/log"
+	"github.com/65658dsf/StellarCore/pkg/metrics/mem"
+	"github.com/65658dsf/StellarCore/pkg/util/log"
 	"github.com/shirou/gopsutil/v3/cpu"
 	gopsutilmem "github.com/shirou/gopsutil/v3/mem"
 )

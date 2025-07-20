@@ -20,8 +20,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fatedier/frp/pkg/util/util"
-	"github.com/fatedier/frp/pkg/util/xlog"
+	"github.com/65658dsf/StellarCore/pkg/util/util"
+	"github.com/65658dsf/StellarCore/pkg/util/xlog"
 )
 
 type Manager struct {

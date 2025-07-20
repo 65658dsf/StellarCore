@@ -18,9 +18,9 @@ import (
 	"fmt"
 	"os"
 
-	_ "github.com/fatedier/frp/assets/frpc"
-	"github.com/fatedier/frp/cmd/frpc/sub"
-	"github.com/fatedier/frp/pkg/util/system"
+	_ "github.com/65658dsf/StellarCore/assets/frpc"
+	"github.com/65658dsf/StellarCore/cmd/frpc/sub"
+	"github.com/65658dsf/StellarCore/pkg/util/system"
 )
 
 func main() {

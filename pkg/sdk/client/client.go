@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/fatedier/frp/client"
-	httppkg "github.com/fatedier/frp/pkg/util/http"
+	"github.com/65658dsf/StellarCore/client"
+	httppkg "github.com/65658dsf/StellarCore/pkg/util/http"
 )
 
 type Client struct {

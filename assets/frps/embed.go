@@ -3,7 +3,7 @@ package frpc
 import (
 	"embed"
 
-	"github.com/fatedier/frp/assets"
+	"github.com/65658dsf/StellarCore/assets"
 )
 
 //go:embed static/*

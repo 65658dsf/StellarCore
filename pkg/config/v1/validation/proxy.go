@@ -22,7 +22,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/validation"
 
-	v1 "github.com/fatedier/frp/pkg/config/v1"
+	v1 "github.com/65658dsf/StellarCore/pkg/config/v1"
 )
 
 func validateProxyBaseConfigForClient(c *v1.ProxyBaseConfig) error {
