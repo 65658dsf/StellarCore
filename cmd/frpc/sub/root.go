@@ -43,6 +43,7 @@ var (
 	token            string
 	tunnelId         []string
 	tunnelData       map[string]Tunnel
+	DisablePrintColor bool
 )
 
 func init() {
@@ -52,6 +53,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&strictConfigMode, "strict_config", "", true, "严格配置解析模式，未知字段将导致错误。")
 	rootCmd.PersistentFlags().StringVarP(&token, "token", "u", "", "从StellarConsole获取的Token。")
 	rootCmd.PersistentFlags().StringSliceVarP(&tunnelId, "tunnel", "t", []string{}, "需要被启动的隧道id，多个隧道以英文逗号分隔。")
+	rootCmd.PersistentFlags().BoolVarP(&DisablePrintColor, "disable_print_color", "d", false, "禁用打印颜色。")
 }
 
 var rootCmd = &cobra.Command{
@@ -202,7 +204,7 @@ func startService(
 	visitorCfgs []v1.VisitorConfigurer,
 	cfgFile string,
 ) error {
-	log.InitLogger(cfg.Log.To, cfg.Log.Level, int(cfg.Log.MaxDays), cfg.Log.DisablePrintColor)
+	log.InitLogger(cfg.Log.To, cfg.Log.Level, int(cfg.Log.MaxDays), DisablePrintColor || cfg.Log.DisablePrintColor)
 
 	if cfgFile != "" {
 		log.Infof("启动 frpc 服务，配置文件：%s", cfgFile)
