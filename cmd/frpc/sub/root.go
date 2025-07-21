@@ -17,7 +17,6 @@ package sub
 import (
 	"context"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"os/signal"
@@ -197,32 +196,6 @@ func runClientFromConfigContent(content string) error {
 	return startService(cfg, proxyCfgs, visitorCfgs, "")
 }
 
-func RunClientFromConfigContentWithPipe(content string) (func(), func(), io.Reader, error) {
-	r, w, err := os.Pipe()
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	cfg, proxyCfgs, visitorCfgs, err := config.LoadClientConfigFromContent(content, strictConfigMode)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	warning, err := validation.ValidateAllClientConfig(cfg, proxyCfgs, visitorCfgs)
-	if warning != nil {
-		fmt.Printf("警告：%v\n", warning)
-	}
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	log.InitLoggerWithWriter(w, cfg.Log.Level)
-	run, svr, err := startServiceFromConfigContent(cfg, proxyCfgs, visitorCfgs)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	return run, func() {
-		svr.GracefulClose(500 * time.Millisecond)
-	}, r, nil
-}
-
 func startService(
 	cfg *v1.ClientCommonConfig,
 	proxyCfgs []v1.ProxyConfigurer,
@@ -251,20 +224,4 @@ func startService(
 		go handleTermSignal(svr)
 	}
 	return svr.Run(context.Background())
-}
-
-func startServiceFromConfigContent(cfg *v1.ClientCommonConfig, proxyCfgs []v1.ProxyConfigurer, visitorCfgs []v1.VisitorConfigurer) (func(), *client.Service, error) {
-	svr, err := client.NewService(client.ServiceOptions{
-		Common:         cfg,
-		ProxyCfgs:      proxyCfgs,
-		VisitorCfgs:    visitorCfgs,
-		ConfigFilePath: "",
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	ctx := context.Background()
-	return func() {
-		svr.Run(ctx)
-	}, svr, nil
 }
