@@ -9,7 +9,7 @@ import (
 	"github.com/65658dsf/StellarCore/pkg/util/log"
 )
 
-const api = "https://api.stellarfrp.top"
+var api = ""
 
 type Response struct {
 	Code       int64             `json:"code"`
@@ -40,6 +40,10 @@ type Tunnel struct {
 	Status     string `json:"Status"`
 	Timestamp  string `json:"Timestamp"`
 	Type       string `json:"Type"`
+}
+
+func SetApi(url string) {
+	api = url
 }
 
 // 新增函数：获取用户所有的隧道列表
