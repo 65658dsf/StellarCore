@@ -9,7 +9,7 @@ import (
 	"github.com/65658dsf/StellarCore/pkg/util/log"
 )
 
-var api = ""
+var api = "https://api.stellarfrp.top"
 
 type Response struct {
 	Code       int64             `json:"code"`
@@ -43,7 +43,7 @@ type Tunnel struct {
 }
 
 func SetApi(url string) {
-	api = url
+	api = "https://api.stellarfrp.top"
 }
 
 // 新增函数：获取用户所有的隧道列表

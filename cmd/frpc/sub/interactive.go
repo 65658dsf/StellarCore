@@ -31,10 +31,12 @@ func runInteractiveMode() (error) {
 	}
 
 	// 构建隧道展示表格
-	fmt.Println("隧道ID\t隧道名称\t类型\t远程端口\t状态\t节点名称\t创建时间")
+	fmt.Printf("%-8s %-12s %-6s %-8s %-8s %-20s %s\n", 
+		"隧道ID", "隧道名称", "类型", "远程端口", "状态", "节点名称", "创建时间")
+	fmt.Println(strings.Repeat("-", 80))
 	tunnelNames := make([]string, 0, len(allTunnelData))
-	for id, tunnel := range allTunnelData {
-		fmt.Printf("%s\t%s\t%s\t%d\t%s\t%s\n",
+	for _, tunnel := range allTunnelData {
+		fmt.Printf("%-8d %-12s %-6s %-8d %-8s %-20s %s\n",
 			tunnel.ID,
 			tunnel.ProxyName,
 			tunnel.Type,
@@ -43,7 +45,7 @@ func runInteractiveMode() (error) {
 			tunnel.NodeName,
 			tunnel.Timestamp,
 		)
-		tunnelNames = append(tunnelNames, fmt.Sprintf("%s %s", id, tunnel.ProxyName))
+		tunnelNames = append(tunnelNames, fmt.Sprintf("%d %s", tunnel.ID, tunnel.ProxyName))
 	}
 
 	// 让用户选择要启用的隧道
@@ -58,7 +60,14 @@ func runInteractiveMode() (error) {
 	runTunnels := make(map[string]string)
 	for _, displayName := range selectedTunnels {
 		ls := strings.Split(displayName, " ")
-		runTunnels[ls[0]] = ls[1]
+		tunnelID := ls[0]
+		// 根据隧道ID找到对应的隧道数据，使用data字段作为配置内容
+		for id, tunnel := range allTunnelData {
+			if id == tunnelID {
+				runTunnels[tunnelID] = tunnel.Data
+				break
+			}
+		}
 	}
 	runMultipleClientsWithContent(runTunnels)
 	return nil
