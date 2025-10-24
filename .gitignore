@@ -37,6 +37,7 @@ dist/
 client.crt
 client.key
 output/
+test/
 
 # Cache
 *.swp

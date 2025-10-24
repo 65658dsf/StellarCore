@@ -196,33 +196,18 @@ func (svr *Service) Run(ctx context.Context) error {
 func (svr *Service) keepControllerWorking() {
 	<-svr.ctl.Done()
 
-	// 添加重试次数计数器
-	retryCount := 0
-	maxRetries := 3
-
 	// There is a situation where the login is successful but due to certain reasons,
 	// the control immediately exits. It is necessary to limit the frequency of reconnection in this case.
 	// The interval for the first three retries in 1 minute will be very short, and then it will increase exponentially.
 	// The maximum interval is 20 seconds.
 	wait.BackoffUntil(func() (bool, error) {
-		// 检查是否已经达到最大重试次数
-		if retryCount >= maxRetries {
-			xl := xlog.FromContextSafe(svr.ctx)
-			xl.Errorf("已达到最大重试次数(%d)，停止重连", maxRetries)
-			// 通知主goroutine退出，避免死锁
-			svr.cancel(cancelErr{Err: fmt.Errorf("已达到最大重试次数(%d)", maxRetries)})
-			return true, nil // 返回true表示停止重试循环
-		}
-
 		// loopLoginUntilSuccess is another layer of loop that will continuously attempt to
 		// login to the server until successful.
 		svr.loopLoginUntilSuccess(20*time.Second, false)
 		if svr.ctl != nil {
 			<-svr.ctl.Done()
-			// 增加重试计数
-			retryCount++
 			xl := xlog.FromContextSafe(svr.ctx)
-			xl.Warnf("连接已断开，重试次数：%d/%d", retryCount, maxRetries)
+			xl.Warnf("连接已断开，正在尝试重连...")
 			return false, errors.New("control is closed and try another loop")
 		}
 		// If the control is nil, it means that the login failed and the service is also closed.

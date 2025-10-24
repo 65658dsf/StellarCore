@@ -249,6 +249,9 @@ func (cfg *HTTPProxyConf) UnmarshalFromIni(prefix string, name string, section *
 type HTTPSProxyConf struct {
 	BaseProxyConf `ini:",extends"`
 	DomainConf    `ini:",extends"`
+	
+	// AutoTls enables automatic TLS configuration
+	AutoTls bool `ini:"auto_tls" json:"auto_tls"`
 }
 
 func (cfg *HTTPSProxyConf) UnmarshalFromIni(prefix string, name string, section *ini.Section) error {

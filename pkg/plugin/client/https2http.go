@@ -19,6 +19,7 @@ package plugin
 import (
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"io"
 	stdlog "log"
@@ -39,6 +40,34 @@ import (
 
 func init() {
 	Register(v1.PluginHTTPS2HTTP, NewHTTPS2HTTPPlugin)
+}
+
+// createTLSConfigFromBase64 从Base64编码的证书和密钥创建TLS配置
+func createTLSConfigFromBase64(crtBase64, keyBase64 string) (*tls.Config, error) {
+	// 解码证书
+	crtData, err := base64.StdEncoding.DecodeString(crtBase64)
+	if err != nil {
+		return nil, fmt.Errorf("解码证书Base64错误: %v", err)
+	}
+
+	// 解码密钥
+	keyData, err := base64.StdEncoding.DecodeString(keyBase64)
+	if err != nil {
+		return nil, fmt.Errorf("解码密钥Base64错误: %v", err)
+	}
+
+	// 从内存中的证书和密钥数据创建TLS证书
+	cert, err := tls.X509KeyPair(crtData, keyData)
+	if err != nil {
+		return nil, fmt.Errorf("创建X509密钥对错误: %v", err)
+	}
+
+	// 创建TLS配置
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+	}
+
+	return tlsConfig, nil
 }
 
 type HTTPS2HTTPPlugin struct {
@@ -86,9 +115,30 @@ func NewHTTPS2HTTPPlugin(options v1.ClientPluginOptions) (Plugin, error) {
 		rp.ServeHTTP(w, r)
 	})
 
-	tlsConfig, err := transport.NewServerTLSConfig(p.opts.CrtPath, p.opts.KeyPath, "")
-	if err != nil {
-		return nil, fmt.Errorf("gen TLS config error: %v", err)
+	var tlsConfig *tls.Config
+	var err error
+
+	// 检查是否启用AutoTls
+	if lo.FromPtr(opts.AutoTls) {
+		// 如果启用AutoTls，优先使用Base64证书，否则使用自动生成的证书
+		if opts.CrtBase64 != "" && opts.KeyBase64 != "" {
+			tlsConfig, err = createTLSConfigFromBase64(opts.CrtBase64, opts.KeyBase64)
+			if err != nil {
+				return nil, fmt.Errorf("创建TLS配置从Base64错误: %v", err)
+			}
+		} else {
+			// 使用自动生成的证书
+			tlsConfig, err = transport.NewServerTLSConfig("", "", "")
+			if err != nil {
+				return nil, fmt.Errorf("生成自动TLS配置错误: %v", err)
+			}
+		}
+	} else {
+		// 传统模式：使用文件路径
+		tlsConfig, err = transport.NewServerTLSConfig(p.opts.CrtPath, p.opts.KeyPath, "")
+		if err != nil {
+			return nil, fmt.Errorf("生成传统TLS配置错误: %v", err)
+		}
 	}
 
 	p.s = &http.Server{

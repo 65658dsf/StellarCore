@@ -61,6 +61,19 @@ func validateProxyBaseConfigForClient(c *v1.ProxyBaseConfig) error {
 			return fmt.Errorf("plugin %s: %v", c.Plugin.Type, err)
 		}
 	}
+
+	// 验证autoTls参数
+	if c.AutoTls != nil && *c.AutoTls {
+		// 如果启用autoTls，必须是HTTPS类型的隧道
+		if c.Type != "https" {
+			return fmt.Errorf("autoTls can only be used with https proxy type")
+		}
+		// 如果启用autoTls，插件类型必须是https2http
+		if c.Plugin.Type != "" && c.Plugin.Type != v1.PluginHTTPS2HTTP {
+			return fmt.Errorf("autoTls can only be used with https2http plugin")
+		}
+	}
+
 	return nil
 }
 

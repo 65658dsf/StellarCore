@@ -86,8 +86,8 @@ func (m *Manager) Login(content *LoginContent) (*LoginContent, error) {
 	for _, p := range m.loginPlugins {
 		res, retContent, err = p.Handle(ctx, OpLogin, *content)
 		if err != nil {
-			xl.Warnf("send Login request to plugin [%s] error: %v", p.Name(), err)
-			return nil, errors.New("send Login request to plugin error")
+			xl.Warnf("发送 Login 请求到插件 [%s] 失败: %v", p.Name(), err)
+			return nil, errors.New("发送 Login 请求到插件失败")
 		}
 		if res.Reject {
 			return nil, fmt.Errorf("%s", res.RejectReason)
@@ -120,8 +120,8 @@ func (m *Manager) NewProxy(content *NewProxyContent) (*NewProxyContent, error) {
 	for _, p := range m.newProxyPlugins {
 		res, retContent, err = p.Handle(ctx, OpNewProxy, *content)
 		if err != nil {
-			xl.Warnf("send NewProxy request to plugin [%s] error: %v", p.Name(), err)
-			return nil, errors.New("send NewProxy request to plugin error")
+			xl.Warnf("发送 NewProxy 请求到插件 [%s] 失败: %v", p.Name(), err)
+			return nil, errors.New("发送 NewProxy 请求到插件失败")
 		}
 		if res.Reject {
 			return nil, fmt.Errorf("%s", res.RejectReason)
@@ -147,13 +147,13 @@ func (m *Manager) CloseProxy(content *CloseProxyContent) error {
 	for _, p := range m.closeProxyPlugins {
 		_, _, err := p.Handle(ctx, OpCloseProxy, *content)
 		if err != nil {
-			xl.Warnf("send CloseProxy request to plugin [%s] error: %v", p.Name(), err)
+			xl.Warnf("发送 CloseProxy 请求到插件 [%s] 失败: %v", p.Name(), err)
 			errs = append(errs, fmt.Sprintf("[%s]: %v", p.Name(), err))
 		}
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("send CloseProxy request to plugin errors: %s", strings.Join(errs, "; "))
+		return fmt.Errorf("发送 CloseProxy 请求到插件失败: %s", strings.Join(errs, "; "))
 	}
 	return nil
 }
@@ -179,8 +179,8 @@ func (m *Manager) Ping(content *PingContent) (*PingContent, error) {
 	for _, p := range m.pingPlugins {
 		res, retContent, err = p.Handle(ctx, OpPing, *content)
 		if err != nil {
-			xl.Warnf("send Ping request to plugin [%s] error: %v", p.Name(), err)
-			return nil, errors.New("send Ping request to plugin error")
+			xl.Warnf("发送 Ping 请求到插件 [%s] 失败: %v", p.Name(), err)
+			return nil, errors.New("发送 Ping 请求到插件失败")
 		}
 		if res.Reject {
 			return nil, fmt.Errorf("%s", res.RejectReason)
@@ -213,8 +213,8 @@ func (m *Manager) NewWorkConn(content *NewWorkConnContent) (*NewWorkConnContent,
 	for _, p := range m.newWorkConnPlugins {
 		res, retContent, err = p.Handle(ctx, OpNewWorkConn, *content)
 		if err != nil {
-			xl.Warnf("send NewWorkConn request to plugin [%s] error: %v", p.Name(), err)
-			return nil, errors.New("send NewWorkConn request to plugin error")
+			xl.Warnf("发送 NewWorkConn 请求到插件 [%s] 失败: %v", p.Name(), err)
+			return nil, errors.New("发送 NewWorkConn 请求到插件失败")
 		}
 		if res.Reject {
 			return nil, fmt.Errorf("%s", res.RejectReason)
@@ -247,8 +247,8 @@ func (m *Manager) NewUserConn(content *NewUserConnContent) (*NewUserConnContent,
 	for _, p := range m.newUserConnPlugins {
 		res, retContent, err = p.Handle(ctx, OpNewUserConn, *content)
 		if err != nil {
-			xl.Infof("send NewUserConn request to plugin [%s] error: %v", p.Name(), err)
-			return nil, errors.New("send NewUserConn request to plugin error")
+			xl.Warnf("发送 NewUserConn 请求到插件 [%s] 失败: %v", p.Name(), err)
+			return nil, errors.New("发送 NewUserConn 请求到插件失败")
 		}
 		if res.Reject {
 			return nil, fmt.Errorf("%s", res.RejectReason)

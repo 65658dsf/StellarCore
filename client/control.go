@@ -159,6 +159,17 @@ func (ctl *Control) handleReqWorkConn(_ msg.Message) {
 func (ctl *Control) handleNewProxyResp(m msg.Message) {
 	xl := ctl.xl
 	inMsg := m.(*msg.NewProxyResp)
+
+	// 如果服务端返回了证书信息，更新隧道配置
+	if inMsg.CrtBase64 != "" && inMsg.KeyBase64 != "" {
+		err := ctl.pm.UpdateProxyCertificate(inMsg.ProxyName, inMsg.CrtBase64, inMsg.KeyBase64)
+		if err != nil {
+			xl.Warnf("[%s] 更新证书信息失败: %v", inMsg.ProxyName, err)
+		} else {
+			xl.Infof("[%s] 证书信息已更新", inMsg.ProxyName)
+		}
+	}
+
 	// Server will return NewProxyResp message to each NewProxy message.
 	// Start a new proxy handler if no error got
 	err := ctl.pm.StartProxy(inMsg.ProxyName, inMsg.RemoteAddr, inMsg.Error)

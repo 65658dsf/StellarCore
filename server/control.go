@@ -389,6 +389,8 @@ func (ctl *Control) handleNewProxy(m msg.Message) {
 	// register proxy in this control
 	resp := &msg.NewProxyResp{
 		ProxyName: inMsg.ProxyName,
+		CrtBase64: inMsg.CrtBase64,
+		KeyBase64: inMsg.KeyBase64,
 	}
 	if err != nil {
 		xl.Warnf("新隧道 [%s] 类型 [%s] 启动错误: %v", inMsg.ProxyName, inMsg.ProxyType, err)

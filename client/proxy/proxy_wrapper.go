@@ -16,9 +16,13 @@ package proxy
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -73,6 +77,7 @@ type Wrapper struct {
 	handler event.Handler
 
 	msgTransporter transport.MessageTransporter
+	clientCfg      *v1.ClientCommonConfig
 
 	health           uint32
 	lastSendStartMsg time.Time
@@ -105,6 +110,7 @@ func NewWrapper(
 		healthNotifyCh: make(chan struct{}),
 		handler:        eventHandler,
 		msgTransporter: msgTransporter,
+		clientCfg:      clientCfg,
 		xl:             xl,
 		ctx:            xlog.NewContext(ctx, xl),
 	}
@@ -276,4 +282,78 @@ func (pw *Wrapper) GetStatus() *WorkingStatus {
 		RemoteAddr: pw.RemoteAddr,
 	}
 	return ps
+}
+
+// parseCertificateDomains 解析证书并提取域名信息
+func parseCertificateDomains(crtBase64 string) ([]string, error) {
+	// 解码base64证书
+	crtData, err := base64.StdEncoding.DecodeString(crtBase64)
+	if err != nil {
+		return nil, fmt.Errorf("无法解码证书: %v", err)
+	}
+
+	// 解析PEM格式
+	block, _ := pem.Decode(crtData)
+	if block == nil {
+		return nil, fmt.Errorf("无法解析证书PEM格式")
+	}
+
+	// 解析X.509证书
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("无法解析X.509证书: %v", err)
+	}
+
+	var domains []string
+
+	// 添加Subject中的CommonName
+	if cert.Subject.CommonName != "" {
+		domains = append(domains, cert.Subject.CommonName)
+	}
+
+	// 添加SAN (Subject Alternative Names)
+	domains = append(domains, cert.DNSNames...)
+
+	// 去重
+	uniqueDomains := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, domain := range domains {
+		if !seen[domain] {
+			uniqueDomains = append(uniqueDomains, domain)
+			seen[domain] = true
+		}
+	}
+
+	return uniqueDomains, nil
+}
+
+func (pw *Wrapper) UpdateCertificate(crtBase64 string, keyBase64 string) error {
+	pw.mu.Lock()
+	defer pw.mu.Unlock()
+
+	// 检查是否为HTTPS隧道类型
+	if httpsConfig, ok := pw.Cfg.(*v1.HTTPSProxyConfig); ok {
+		// 解析证书并提取域名信息
+		domains, err := parseCertificateDomains(crtBase64)
+		if err != nil {
+			pw.xl.Warnf("无法解析证书域名信息: %v", err)
+		} else if len(domains) > 0 {
+			pw.xl.Infof("隧道 [%s] 收到证书，域名: %s", pw.Name, strings.Join(domains, ", "))
+		} else {
+			pw.xl.Infof("隧道 [%s] 收到证书，无域名信息", pw.Name)
+		}
+
+		httpsConfig.CrtBase64 = crtBase64
+		httpsConfig.KeyBase64 = keyBase64
+
+		// 如果隧道已经在运行，需要重新创建隧道实例以应用新的证书
+		if pw.pxy != nil {
+			pw.pxy.Close()
+			pw.pxy = NewProxy(pw.ctx, pw.Cfg, pw.clientCfg, pw.msgTransporter)
+		}
+
+		return nil
+	}
+
+	return fmt.Errorf("该隧道,%s类型, 无法更新证书", pw.Type)
 }

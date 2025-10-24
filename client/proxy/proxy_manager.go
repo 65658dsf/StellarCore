@@ -129,6 +129,17 @@ func (pm *Manager) GetProxyStatus(name string) (*WorkingStatus, bool) {
 	return nil, false
 }
 
+func (pm *Manager) UpdateProxyCertificate(name string, crtBase64 string, keyBase64 string) error {
+	pm.mu.RLock()
+	pxy, ok := pm.proxies[name]
+	pm.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("隧道 [%s] 不存在", name)
+	}
+
+	return pxy.UpdateCertificate(crtBase64, keyBase64)
+}
+
 func (pm *Manager) UpdateAll(proxyCfgs []v1.ProxyConfigurer) {
 	xl := xlog.FromContextSafe(pm.ctx)
 	proxyCfgsMap := lo.KeyBy(proxyCfgs, func(c v1.ProxyConfigurer) string {

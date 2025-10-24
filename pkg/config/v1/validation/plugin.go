@@ -40,42 +40,54 @@ func ValidateClientPluginOptions(c v1.ClientPluginOptions) error {
 
 func validateHTTP2HTTPSPluginOptions(c *v1.HTTP2HTTPSPluginOptions) error {
 	if c.LocalAddr == "" {
-		return errors.New("localAddr is required")
+		return errors.New("需要配置本地地址")
 	}
 	return nil
 }
 
 func validateHTTPS2HTTPPluginOptions(c *v1.HTTPS2HTTPPluginOptions) error {
 	if c.LocalAddr == "" {
-		return errors.New("localAddr is required")
+		return errors.New("需要配置本地地址")
 	}
+
+	// 如果启用AutoTls，则不需要验证证书文件路径
+	if c.AutoTls != nil && *c.AutoTls {
+		// AutoTls模式下，可以使用Base64证书或自动生成证书
+		return nil
+	}
+
+	// 传统模式下，需要证书文件路径
+	if c.CrtPath == "" || c.KeyPath == "" {
+		return errors.New("需要配置证书文件路径")
+	}
+
 	return nil
 }
 
 func validateHTTPS2HTTPSPluginOptions(c *v1.HTTPS2HTTPSPluginOptions) error {
 	if c.LocalAddr == "" {
-		return errors.New("localAddr is required")
+		return errors.New("需要配置本地地址")
 	}
 	return nil
 }
 
 func validateStaticFilePluginOptions(c *v1.StaticFilePluginOptions) error {
 	if c.LocalPath == "" {
-		return errors.New("localPath is required")
+		return errors.New("需要配置本地文件路径")
 	}
 	return nil
 }
 
 func validateUnixDomainSocketPluginOptions(c *v1.UnixDomainSocketPluginOptions) error {
 	if c.UnixPath == "" {
-		return errors.New("unixPath is required")
+		return errors.New("需要配置Unix域套接字路径")
 	}
 	return nil
 }
 
 func validateTLS2RawPluginOptions(c *v1.TLS2RawPluginOptions) error {
 	if c.LocalAddr == "" {
-		return errors.New("localAddr is required")
+		return errors.New("需要配置本地地址")
 	}
 	return nil
 }

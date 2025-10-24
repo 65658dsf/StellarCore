@@ -123,10 +123,16 @@ type HTTPS2HTTPPluginOptions struct {
 	EnableHTTP2       *bool            `json:"enableHTTP2,omitempty"`
 	CrtPath           string           `json:"crtPath,omitempty"`
 	KeyPath           string           `json:"keyPath,omitempty"`
+	// 新增字段：自动TLS配置
+	AutoTls           *bool            `json:"autoTls,omitempty"`
+	// 服务端传递的证书Base64编码
+	CrtBase64         string           `json:"crtBase64,omitempty"`
+	KeyBase64         string           `json:"keyBase64,omitempty"`
 }
 
 func (o *HTTPS2HTTPPluginOptions) Complete() {
 	o.EnableHTTP2 = util.EmptyOr(o.EnableHTTP2, lo.ToPtr(true))
+	o.AutoTls = util.EmptyOr(o.AutoTls, lo.ToPtr(false))
 }
 
 type HTTPS2HTTPSPluginOptions struct {

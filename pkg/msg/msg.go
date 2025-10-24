@@ -130,12 +130,20 @@ type NewProxy struct {
 
 	// tcpmux
 	Multiplexer string `json:"multiplexer,omitempty"`
+
+	// Certificate fields for HTTPS2HTTP plugin
+	CrtBase64 string `json:"crt_base64,omitempty"`
+	KeyBase64 string `json:"key_base64,omitempty"`
+	AutoTls   *bool  `json:"auto_tls,omitempty"`
 }
 
 type NewProxyResp struct {
 	ProxyName  string `json:"proxy_name,omitempty"`
 	RemoteAddr string `json:"remote_addr,omitempty"`
 	Error      string `json:"error,omitempty"`
+	// 服务端传递的证书信息
+	CrtBase64 string `json:"crt_base64,omitempty"`
+	KeyBase64 string `json:"key_base64,omitempty"`
 }
 
 type CloseProxy struct {

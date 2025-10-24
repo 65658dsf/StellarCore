@@ -116,6 +116,8 @@ type ProxyBaseConfig struct {
 	Metadatas    map[string]string  `json:"metadatas,omitempty"`
 	LoadBalancer LoadBalancerConfig `json:"loadBalancer,omitempty"`
 	HealthCheck  HealthCheckConfig  `json:"healthCheck,omitempty"`
+	// 自动TLS配置，用于HTTPS隧道
+	AutoTls *bool `json:"autoTls,omitempty"`
 	ProxyBackend
 }
 
@@ -127,6 +129,7 @@ func (c *ProxyBaseConfig) Complete(namePrefix string) {
 	c.Name = lo.Ternary(namePrefix == "", "", namePrefix+".") + c.Name
 	c.LocalIP = util.EmptyOr(c.LocalIP, "127.0.0.1")
 	c.Transport.BandwidthLimitMode = util.EmptyOr(c.Transport.BandwidthLimitMode, types.BandwidthLimitModeClient)
+	c.AutoTls = util.EmptyOr(c.AutoTls, lo.ToPtr(false))
 
 	if c.Plugin.ClientPluginOptions != nil {
 		c.Plugin.ClientPluginOptions.Complete()
@@ -147,6 +150,7 @@ func (c *ProxyBaseConfig) MarshalToMsg(m *msg.NewProxy) {
 	m.GroupKey = c.LoadBalancer.GroupKey
 	m.Metas = c.Metadatas
 	m.Annotations = c.Annotations
+	m.AutoTls = c.AutoTls
 }
 
 func (c *ProxyBaseConfig) UnmarshalFromMsg(m *msg.NewProxy) {
@@ -164,6 +168,7 @@ func (c *ProxyBaseConfig) UnmarshalFromMsg(m *msg.NewProxy) {
 	c.LoadBalancer.GroupKey = m.GroupKey
 	c.Metadatas = m.Metas
 	c.Annotations = m.Annotations
+	c.AutoTls = m.AutoTls
 }
 
 type TypedProxyConfig struct {
@@ -336,6 +341,10 @@ var _ ProxyConfigurer = &HTTPSProxyConfig{}
 type HTTPSProxyConfig struct {
 	ProxyBaseConfig
 	DomainConfig
+
+	// 服务端传递的证书Base64编码
+	CrtBase64 string `json:"crtBase64,omitempty"`
+	KeyBase64 string `json:"keyBase64,omitempty"`
 }
 
 func (c *HTTPSProxyConfig) MarshalToMsg(m *msg.NewProxy) {
@@ -350,6 +359,8 @@ func (c *HTTPSProxyConfig) UnmarshalFromMsg(m *msg.NewProxy) {
 
 	c.CustomDomains = m.CustomDomains
 	c.SubDomain = m.SubDomain
+	c.CrtBase64 = m.CrtBase64
+	c.KeyBase64 = m.KeyBase64
 }
 
 type TCPMultiplexerType string

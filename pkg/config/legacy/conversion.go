@@ -223,12 +223,19 @@ func Convert_ProxyConf_To_v1_Base(conf ProxyConf) *v1.ProxyBaseConfig {
 			HTTPPassword: base.PluginParams["plugin_http_passwd"],
 		}
 	case "https2http":
+		autoTls := false
+		if base.PluginParams["plugin_auto_tls"] == "true" {
+			autoTls = true
+		}
 		out.Plugin.ClientPluginOptions = &v1.HTTPS2HTTPPluginOptions{
 			LocalAddr:         base.PluginParams["plugin_local_addr"],
 			HostHeaderRewrite: base.PluginParams["plugin_host_header_rewrite"],
 			RequestHeaders:    transformHeadersFromPluginParams(base.PluginParams),
 			CrtPath:           base.PluginParams["plugin_crt_path"],
 			KeyPath:           base.PluginParams["plugin_key_path"],
+			AutoTls:           &autoTls,
+			CrtBase64:         base.PluginParams["plugin_crt_base64"],
+			KeyBase64:         base.PluginParams["plugin_key_base64"],
 		}
 	case "https2https":
 		out.Plugin.ClientPluginOptions = &v1.HTTPS2HTTPSPluginOptions{
@@ -286,6 +293,8 @@ func Convert_ProxyConf_To_v1(conf ProxyConf) v1.ProxyConfigurer {
 		c := &v1.HTTPSProxyConfig{ProxyBaseConfig: *outBase}
 		c.CustomDomains = v.CustomDomains
 		c.SubDomain = v.SubDomain
+		// Set autoTls from legacy configuration
+		c.AutoTls = &v.AutoTls
 		out = c
 	case *TCPMuxProxyConf:
 		c := &v1.TCPMuxProxyConfig{ProxyBaseConfig: *outBase}

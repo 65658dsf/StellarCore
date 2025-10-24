@@ -98,7 +98,18 @@ type BaseProxy struct {
 
 func (pxy *BaseProxy) Run() error {
 	if pxy.baseCfg.Plugin.Type != "" {
-		p, err := plugin.Create(pxy.baseCfg.Plugin.Type, pxy.baseCfg.Plugin.ClientPluginOptions)
+		// 如果隧道配置中有autoTls参数，将其传递给插件配置
+		pluginOptions := pxy.baseCfg.Plugin.ClientPluginOptions
+		if pxy.baseCfg.AutoTls != nil && *pxy.baseCfg.AutoTls {
+			// 对于HTTPS2HTTP插件，设置AutoTls参数
+			if pxy.baseCfg.Plugin.Type == v1.PluginHTTPS2HTTP {
+				if httpsOpts, ok := pluginOptions.(*v1.HTTPS2HTTPPluginOptions); ok {
+					httpsOpts.AutoTls = pxy.baseCfg.AutoTls
+				}
+			}
+		}
+
+		p, err := plugin.Create(pxy.baseCfg.Plugin.Type, pluginOptions)
 		if err != nil {
 			return err
 		}
