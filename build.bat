@@ -1,9 +1,14 @@
 @echo off
+:: 设置控制台编码为UTF-8
+chcp 65001 >nul 2>&1
 setlocal EnableDelayedExpansion
 
 :: 版本号
 set VERSION=0.61.2
 set BINARY_NAME=StellarFrpc
+
+:: 获取Git版本号
+for /f "tokens=*" %%i in ('git describe --always --dirty') do set GIT_VERSION=%%i
 
 :: 创建输出目录
 if not exist output mkdir output
@@ -61,8 +66,8 @@ set GOOS=linux
 set GOARCH=386
 go build -trimpath -ldflags "-s -w" -o "output/%BINARY_NAME%" ./cmd/frpc
 upx --best --lzma "output/%BINARY_NAME%"
-cd output && 7z a -ttar "%BINARY_NAME%_%VERSION%_linux_386.tar" "%BINARY_NAME%" && 7z a -tgzip "%BINARY_NAME%_%VERSION%_linux_386.tar.gz" "%BINARY_NAME%_%VERSION%_linux_386.tar" && cd ..
-del "output\%BINARY_NAME%" "output\%BINARY_NAME%_%VERSION%_linux_386.tar"
+cd output && 7z a -ttar "%BINARY_NAME%_%VERSION%_linux_386_%GIT_VERSION%.tar" "%BINARY_NAME%" && 7z a -tgzip "%BINARY_NAME%_%VERSION%_linux_386_%GIT_VERSION%.tar.gz" "%BINARY_NAME%_%VERSION%_linux_386_%GIT_VERSION%.tar" && cd ..
+del "output\%BINARY_NAME%" "output\%BINARY_NAME%_%VERSION%_linux_386_%GIT_VERSION%.tar"
 
 set GOOS=linux
 set GOARCH=amd64
