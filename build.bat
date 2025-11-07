@@ -9,6 +9,7 @@ set BINARY_NAME=StellarFrpc
 
 :: 获取Git版本号
 for /f "tokens=*" %%i in ('git describe --always --dirty') do set GIT_VERSION=%%i
+echo 当前Git版本号：%GIT_VERSION%
 
 :: 创建输出目录
 if not exist output mkdir output
