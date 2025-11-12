@@ -50,10 +50,31 @@ func ValidateServerConfig(c *v1.ServerConfig) (Warning, error) {
 	errs = AppendError(errs, ValidatePort(c.VhostHTTPSPort, "vhostHTTPSPort"))
 	errs = AppendError(errs, ValidatePort(c.TCPMuxHTTPConnectPort, "tcpMuxHTTPConnectPort"))
 
-	for _, p := range c.HTTPPlugins {
-		if !lo.Every(SupportedHTTPPluginOps, p.Ops) {
-			errs = AppendError(errs, fmt.Errorf("invalid http plugin ops, optional values are %v", SupportedHTTPPluginOps))
-		}
-	}
-	return warnings, errs
+    for _, p := range c.HTTPPlugins {
+        if !lo.Every(SupportedHTTPPluginOps, p.Ops) {
+            errs = AppendError(errs, fmt.Errorf("invalid http plugin ops, optional values are %v", SupportedHTTPPluginOps))
+        }
+    }
+    if len(c.TrafficMonitor.WhitelistProxies) > 0 {
+        m := map[string]struct{}{}
+        for _, v := range c.TrafficMonitor.WhitelistProxies {
+            if _, ok := m[v]; ok {
+                errs = AppendError(errs, fmt.Errorf("duplicated proxy name in trafficMonitor.whitelistProxies: %s", v))
+            }
+            m[v] = struct{}{}
+        }
+    }
+    if len(c.TrafficMonitor.WhitelistRunIDs) > 0 {
+        m := map[string]struct{}{}
+        for _, v := range c.TrafficMonitor.WhitelistRunIDs {
+            if _, ok := m[v]; ok {
+                errs = AppendError(errs, fmt.Errorf("duplicated runID in trafficMonitor.whitelistRunIDs: %s", v))
+            }
+            m[v] = struct{}{}
+        }
+    }
+    if c.TrafficMonitor.InspectTimeoutMS < 0 {
+        errs = AppendError(errs, fmt.Errorf("trafficMonitor.inspectTimeoutMS must be >= 0"))
+    }
+    return warnings, errs
 }

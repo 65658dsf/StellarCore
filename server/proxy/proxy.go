@@ -19,7 +19,9 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"reflect"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -33,10 +35,18 @@ import (
 	plugin "github.com/65658dsf/StellarCore/pkg/plugin/server"
 	"github.com/65658dsf/StellarCore/pkg/util/limit"
 	netpkg "github.com/65658dsf/StellarCore/pkg/util/net"
+	"github.com/65658dsf/StellarCore/pkg/util/protoinspect"
+	"github.com/65658dsf/StellarCore/pkg/util/vhost"
 	"github.com/65658dsf/StellarCore/pkg/util/xlog"
 	"github.com/65658dsf/StellarCore/server/controller"
 	"github.com/65658dsf/StellarCore/server/metrics"
 )
+
+type detectRWC struct {
+	c         net.Conn
+	done      bool
+	serverCfg *v1.ServerConfig
+}
 
 var proxyFactoryRegistry = map[reflect.Type]func(*BaseProxy) Proxy{}
 
@@ -229,6 +239,21 @@ func (pxy *BaseProxy) handleUserTCPConnection(userConn net.Conn) {
 		return
 	}
 
+	if pxy.serverCfg.TrafficMonitor.Enable {
+		name := pxy.GetName()
+		runID := ""
+		if pxy.GetLoginMsg() != nil {
+			runID = pxy.GetLoginMsg().RunID
+		}
+		skip := slices.Contains(pxy.serverCfg.TrafficMonitor.WhitelistProxies, name) || (runID != "" && slices.Contains(pxy.serverCfg.TrafficMonitor.WhitelistRunIDs, runID))
+		if !skip {
+			var dr detectRWC
+			dr.c = userConn
+			dr.serverCfg = pxy.serverCfg
+			userConn = netpkg.WrapReadWriteCloserToConn(libio.WrapReadWriteCloser(&dr, &dr, func() error { return dr.c.Close() }), userConn)
+		}
+	}
+
 	// try all connections from the pool
 	workConn, err := pxy.GetWorkConnFromPool(userConn.RemoteAddr(), userConn.LocalAddr())
 	if err != nil {
@@ -270,6 +295,37 @@ func (pxy *BaseProxy) handleUserTCPConnection(userConn net.Conn) {
 	metrics.Server.AddTrafficOut(name, proxyType, outCount)
 	xl.Debugf("join connections closed")
 }
+
+func (d *detectRWC) Read(p []byte) (int, error) {
+	n, err := d.c.Read(p)
+	if !d.done && n > 0 {
+		httpMatch, httpFeat := protoinspect.DetectHTTP(p[:n])
+		tlsMatch, _, _ := protoinspect.DetectTLSClientHello(p[:n])
+		if httpMatch || tlsMatch {
+			if httpMatch {
+				method := httpFeat["Method"]
+				if method != "" {
+					var resp *http.Response
+					if d.serverCfg != nil && d.serverCfg.TrafficMonitor.RespondForbidden {
+						resp = vhost.ForbiddenResponse()
+					} else if d.serverCfg != nil && d.serverCfg.TrafficMonitor.RespondNotFound {
+						resp = vhost.NotFoundResponse()
+					}
+					if resp != nil {
+						_ = resp.Write(d.c)
+					}
+				}
+			}
+			d.done = true
+			return 0, io.EOF
+		}
+		d.done = true
+	}
+	return n, err
+}
+
+func (d *detectRWC) Write(p []byte) (int, error) { return d.c.Write(p) }
+func (d *detectRWC) Close() error                { return d.c.Close() }
 
 type Options struct {
 	UserInfo           plugin.UserInfo

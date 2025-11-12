@@ -38,6 +38,7 @@ client.crt
 client.key
 output/
 test/
+.trae/
 
 # Cache
 *.swp

@@ -293,25 +293,16 @@ func (svr *Service) login() (conn net.Conn, connector Connector, err error) {
 func (svr *Service) loopLoginUntilSuccess(maxInterval time.Duration, firstLoginExit bool) {
 	xl := xlog.FromContextSafe(svr.ctx)
 
-	// 添加重试次数限制
+	// 记录重试次数（仅用于日志展示，不设上限）
 	retryCount := 0
-	maxRetries := 3
 
 	loginFunc := func() (bool, error) {
-		// 检查重试次数是否已达上限
-		if retryCount >= maxRetries {
-			xl.Errorf("登录尝试失败次数达到上限(%d)，停止重试", maxRetries)
-			// 无论firstLoginExit是否为true，都应该通知主goroutine退出
-			svr.cancel(cancelErr{Err: fmt.Errorf("登录尝试次数已达上限")})
-			return true, fmt.Errorf("登录尝试次数已达上限")
-		}
-
 		xl.Infof("正在尝试连接到服务器...")
 		conn, connector, err := svr.login()
 		if err != nil {
 			// 增加重试计数
 			retryCount++
-			xl.Warnf("连接服务器错误: %v (尝试 %d/%d)", err, retryCount, maxRetries)
+			xl.Warnf("连接服务器错误: %v (尝试 %d)", err, retryCount)
 			if firstLoginExit {
 				svr.cancel(cancelErr{Err: err})
 			}
@@ -339,7 +330,7 @@ func (svr *Service) loopLoginUntilSuccess(maxInterval time.Duration, firstLoginE
 			conn.Close()
 			// 增加重试计数
 			retryCount++
-			xl.Errorf("创建控制器错误: %v (尝试 %d/%d)", err, retryCount, maxRetries)
+			xl.Errorf("创建控制器错误: %v (尝试 %d)", err, retryCount)
 			return false, err
 		}
 		ctl.SetInWorkConnCallback(svr.handleWorkConnCb)

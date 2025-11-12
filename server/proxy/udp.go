@@ -31,6 +31,9 @@ import (
 	"github.com/65658dsf/StellarCore/pkg/proto/udp"
 	"github.com/65658dsf/StellarCore/pkg/util/limit"
 	netpkg "github.com/65658dsf/StellarCore/pkg/util/net"
+	"github.com/65658dsf/StellarCore/pkg/util/protoinspect"
+	"github.com/65658dsf/StellarCore/pkg/util/util"
+	"github.com/65658dsf/StellarCore/pkg/util/xlog"
 	"github.com/65658dsf/StellarCore/server/metrics"
 )
 
@@ -161,6 +164,14 @@ func (pxy *UDPProxy) Run() (remoteAddr string, err error) {
 				if !ok {
 					xl.Infof("sender goroutine for udp work connection closed")
 					return
+				}
+				if pxy.serverCfg.TrafficMonitor.Enable {
+					httpMatch, httpFeat := protoinspect.DetectHTTP([]byte(udpMsg.Content))
+					if httpMatch {
+						tid, _ := util.RandID()
+						method := httpFeat["Method"]
+						xlog.FromContextSafe(pxy.Context()).Warnf("[TunnelID=%s] Detect=HTTP Features=Method=%s Via=UDP At=%s", tid, method, time.Now().Format("2006-01-02 15:04:05"))
+					}
 				}
 				if errRet = msg.WriteMsg(conn, udpMsg); errRet != nil {
 					xl.Infof("sender goroutine for udp work connection closed: %v", errRet)
