@@ -135,10 +135,10 @@ func (pxy *BaseProxy) GetWorkConnFromPool(src, dst net.Addr) (workConn net.Conn,
 	// try all connections from the pool
 	for i := 0; i < pxy.poolCount+1; i++ {
 		if workConn, err = pxy.getWorkConnFn(); err != nil {
-			xl.Warnf("failed to get work connection: %v", err)
+			xl.Warnf("从隧道连接池获取连接失败: %v, 次数: %d", err, i)
 			return
 		}
-		xl.Debugf("get a new work connection: [%s]", workConn.RemoteAddr().String())
+		xl.Debugf("获取到新的隧道连接: [%s]", workConn.RemoteAddr().String())
 		xl.Spawn().AppendPrefix(pxy.GetName())
 		workConn = netpkg.NewContextConn(pxy.ctx, workConn)
 
@@ -168,7 +168,7 @@ func (pxy *BaseProxy) GetWorkConnFromPool(src, dst net.Addr) (workConn net.Conn,
 			Error:     "",
 		})
 		if err != nil {
-			xl.Warnf("failed to send message to work connection from pool: %v, times: %d", err, i)
+			xl.Warnf("发送消息到隧道连接失败: %v, 次数: %d", err, i)
 			workConn.Close()
 		} else {
 			break
@@ -176,7 +176,7 @@ func (pxy *BaseProxy) GetWorkConnFromPool(src, dst net.Addr) (workConn net.Conn,
 	}
 
 	if err != nil {
-		xl.Errorf("try to get work connection failed in the end")
+		xl.Errorf("尝试从隧道连接池获取连接失败")
 		return
 	}
 	return
@@ -203,15 +203,15 @@ func (pxy *BaseProxy) startCommonTCPListenersHandler() {
 						if maxTime := 1 * time.Second; tempDelay > maxTime {
 							tempDelay = maxTime
 						}
-						xl.Infof("met temporary error: %s, sleep for %s ...", err, tempDelay)
+						xl.Infof("临时错误: %s, 等待 %s ...", err, tempDelay)
 						time.Sleep(tempDelay)
 						continue
 					}
 
-					xl.Warnf("listener is closed: %s", err)
+					xl.Warnf("关闭监听: %s", err)
 					return
 				}
-				xl.Infof("get a user connection [%s]", c.RemoteAddr().String())
+				xl.Infof("新用户连接: %s", c.RemoteAddr().String())
 				go pxy.handleUserTCPConnection(c)
 			}
 		}(listener)
@@ -235,7 +235,7 @@ func (pxy *BaseProxy) handleUserTCPConnection(userConn net.Conn) {
 	}
 	_, err := rc.PluginManager.NewUserConn(content)
 	if err != nil {
-		xl.Warnf("the user conn [%s] was rejected, err:%v", content.RemoteAddr, err)
+		xl.Warnf("拒绝用户连接 [%s], 错误: %v", content.RemoteAddr, err)
 		return
 	}
 
@@ -262,12 +262,12 @@ func (pxy *BaseProxy) handleUserTCPConnection(userConn net.Conn) {
 	defer workConn.Close()
 
 	var local io.ReadWriteCloser = workConn
-	xl.Tracef("handler user tcp connection, use_encryption: %t, use_compression: %t",
+	xl.Tracef("处理用户TCP连接, 使用加密: %t, 使用压缩: %t",
 		cfg.Transport.UseEncryption, cfg.Transport.UseCompression)
 	if cfg.Transport.UseEncryption {
 		local, err = libio.WithEncryption(local, []byte(serverCfg.Auth.Token))
 		if err != nil {
-			xl.Errorf("create encryption stream error: %v", err)
+			xl.Errorf("创建加密流错误: %v", err)
 			return
 		}
 	}
@@ -283,7 +283,7 @@ func (pxy *BaseProxy) handleUserTCPConnection(userConn net.Conn) {
 		})
 	}
 
-	xl.Debugf("join connections, workConn(l[%s] r[%s]) userConn(l[%s] r[%s])", workConn.LocalAddr().String(),
+	xl.Debugf("连接加入, workConn(l[%s] r[%s]) userConn(l[%s] r[%s])", workConn.LocalAddr().String(),
 		workConn.RemoteAddr().String(), userConn.LocalAddr().String(), userConn.RemoteAddr().String())
 
 	name := pxy.GetName()
@@ -293,7 +293,7 @@ func (pxy *BaseProxy) handleUserTCPConnection(userConn net.Conn) {
 	metrics.Server.CloseConnection(name, proxyType)
 	metrics.Server.AddTrafficIn(name, proxyType, inCount)
 	metrics.Server.AddTrafficOut(name, proxyType, outCount)
-	xl.Debugf("join connections closed")
+	xl.Debugf("连接失败")
 }
 
 func (d *detectRWC) Read(p []byte) (int, error) {
@@ -364,11 +364,11 @@ func NewProxy(ctx context.Context, options *Options) (pxy Proxy, err error) {
 
 	factory := proxyFactoryRegistry[reflect.TypeOf(configurer)]
 	if factory == nil {
-		return pxy, fmt.Errorf("proxy type not support")
+		return pxy, fmt.Errorf("不支持的代理类型")
 	}
 	pxy = factory(&basePxy)
 	if pxy == nil {
-		return nil, fmt.Errorf("proxy not created")
+		return nil, fmt.Errorf("代理未创建")
 	}
 	return pxy, nil
 }
@@ -390,7 +390,7 @@ func (pm *Manager) Add(name string, pxy Proxy) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	if _, ok := pm.pxys[name]; ok {
-		return fmt.Errorf("proxy name [%s] is already in use", name)
+		return fmt.Errorf("隧道 [%s] 已存在", name)
 	}
 
 	pm.pxys[name] = pxy
