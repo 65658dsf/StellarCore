@@ -239,20 +239,21 @@ func (pxy *BaseProxy) handleUserTCPConnection(userConn net.Conn) {
 		return
 	}
 
-	if pxy.serverCfg.TrafficMonitor.Enable {
-		name := pxy.GetName()
-		runID := ""
-		if pxy.GetLoginMsg() != nil {
-			runID = pxy.GetLoginMsg().RunID
-		}
-		skip := slices.Contains(pxy.serverCfg.TrafficMonitor.WhitelistProxies, name) || (runID != "" && slices.Contains(pxy.serverCfg.TrafficMonitor.WhitelistRunIDs, runID))
-		if !skip {
-			var dr detectRWC
-			dr.c = userConn
-			dr.serverCfg = pxy.serverCfg
-			userConn = netpkg.WrapReadWriteCloserToConn(libio.WrapReadWriteCloser(&dr, &dr, func() error { return dr.c.Close() }), userConn)
-		}
-	}
+    if pxy.serverCfg.TrafficMonitor.Enable {
+        name := pxy.GetName()
+        runID := ""
+        if pxy.GetLoginMsg() != nil {
+            runID = pxy.GetLoginMsg().RunID
+        }
+        skip := slices.Contains(pxy.serverCfg.TrafficMonitor.WhitelistProxies, name) || (runID != "" && slices.Contains(pxy.serverCfg.TrafficMonitor.WhitelistRunIDs, runID))
+        proxyType := v1.ProxyType(cfg.Type)
+        if !skip && proxyType != v1.ProxyTypeHTTP && proxyType != v1.ProxyTypeHTTPS {
+            var dr detectRWC
+            dr.c = userConn
+            dr.serverCfg = pxy.serverCfg
+            userConn = netpkg.WrapReadWriteCloserToConn(libio.WrapReadWriteCloser(&dr, &dr, func() error { return dr.c.Close() }), userConn)
+        }
+    }
 
 	// try all connections from the pool
 	workConn, err := pxy.GetWorkConnFromPool(userConn.RemoteAddr(), userConn.LocalAddr())
