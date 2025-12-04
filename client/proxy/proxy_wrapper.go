@@ -328,32 +328,54 @@ func parseCertificateDomains(crtBase64 string) ([]string, error) {
 }
 
 func (pw *Wrapper) UpdateCertificate(crtBase64 string, keyBase64 string) error {
-	pw.mu.Lock()
-	defer pw.mu.Unlock()
+    pw.mu.Lock()
+    defer pw.mu.Unlock()
 
-	// 检查是否为HTTPS隧道类型
-	if httpsConfig, ok := pw.Cfg.(*v1.HTTPSProxyConfig); ok {
-		// 解析证书并提取域名信息
-		domains, err := parseCertificateDomains(crtBase64)
-		if err != nil {
-			pw.xl.Warnf("无法解析证书域名信息: %v", err)
-		} else if len(domains) > 0 {
-			pw.xl.Infof("隧道 [%s] 收到证书，域名: %s", pw.Name, strings.Join(domains, ", "))
-		} else {
-			pw.xl.Infof("隧道 [%s] 收到证书，无域名信息", pw.Name)
-		}
+    // 检查是否为HTTPS隧道类型
+    if httpsConfig, ok := pw.Cfg.(*v1.HTTPSProxyConfig); ok {
+        domains, err := parseCertificateDomains(crtBase64)
+        if err != nil {
+            pw.xl.Warnf("无法解析证书域名信息: %v", err)
+        } else if len(domains) > 0 {
+            pw.xl.Infof("隧道 [%s] 收到证书，域名: %s", pw.Name, strings.Join(domains, ", "))
+        } else {
+            pw.xl.Infof("隧道 [%s] 收到证书，无域名信息", pw.Name)
+        }
 
-		httpsConfig.CrtBase64 = crtBase64
-		httpsConfig.KeyBase64 = keyBase64
+        httpsConfig.CrtBase64 = crtBase64
+        httpsConfig.KeyBase64 = keyBase64
 
-		// 如果隧道已经在运行，需要重新创建隧道实例以应用新的证书
-		if pw.pxy != nil {
-			pw.pxy.Close()
-			pw.pxy = NewProxy(pw.ctx, pw.Cfg, pw.clientCfg, pw.msgTransporter)
-		}
+        base := httpsConfig.GetBaseConfig()
+        if base.Plugin.Type == "" {
+            addr := net.JoinHostPort(base.LocalIP, strconv.Itoa(base.LocalPort))
+            auto := true
+            base.Plugin.Type = v1.PluginHTTPS2HTTP
+            base.Plugin.ClientPluginOptions = &v1.HTTPS2HTTPPluginOptions{
+                Type:       v1.PluginHTTPS2HTTP,
+                LocalAddr:  addr,
+                AutoTls:    &auto,
+                CrtBase64:  crtBase64,
+                KeyBase64:  keyBase64,
+            }
+        } else if base.Plugin.Type == v1.PluginHTTPS2HTTP {
+            if opts, ok := base.Plugin.ClientPluginOptions.(*v1.HTTPS2HTTPPluginOptions); ok {
+                opts.CrtBase64 = crtBase64
+                opts.KeyBase64 = keyBase64
+                auto := true
+                opts.AutoTls = &auto
+                if opts.LocalAddr == "" {
+                    opts.LocalAddr = net.JoinHostPort(base.LocalIP, strconv.Itoa(base.LocalPort))
+                }
+            }
+        }
 
-		return nil
-	}
+        if pw.pxy != nil {
+            pw.pxy.Close()
+            pw.pxy = NewProxy(pw.ctx, pw.Cfg, pw.clientCfg, pw.msgTransporter)
+        }
 
-	return fmt.Errorf("该隧道,%s类型, 无法更新证书", pw.Type)
+        return nil
+    }
+
+    return fmt.Errorf("该隧道,%s类型, 无法更新证书", pw.Type)
 }
