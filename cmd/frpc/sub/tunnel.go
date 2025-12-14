@@ -42,10 +42,6 @@ type Tunnel struct {
 	Type       string `json:"Type"`
 }
 
-func SetApi(url string) {
-	api = "https://api.stellarfrp.top"
-}
-
 // 新增函数：获取用户所有的隧道列表
 func getAllTunnels(token string) (map[string]Tunnel, error) {
 	// 创建请求
