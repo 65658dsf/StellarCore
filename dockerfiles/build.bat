@@ -1,0 +1,1 @@
+docker buildx build --platform linux/amd64,linux/arm64 --tag ningmeng123/stellarfrpc:1.0.5 --tag ningmeng123/stellarfrpc:latest --push .
