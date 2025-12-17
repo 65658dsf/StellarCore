@@ -14,7 +14,7 @@
 
 package version
 
-var version = "StellarCore-1.1.2"
+var version = "StellarCore-1.1.3"
 var brand = "StellarFrp"
 
 func Full() string {

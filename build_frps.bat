@@ -4,7 +4,7 @@ chcp 65001 >nul 2>&1
 setlocal EnableDelayedExpansion
 
 :: 版本号
-set VERSION=1.1.2
+set VERSION=1.1.3
 set BINARY_NAME=StellarCore
 
 
