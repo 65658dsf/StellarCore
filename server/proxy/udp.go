@@ -20,7 +20,9 @@ import (
 	"io"
 	"net"
 	"reflect"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/fatedier/golib/errors"
@@ -171,6 +173,49 @@ func (pxy *UDPProxy) Run() (remoteAddr string, err error) {
 						tid, _ := util.RandID()
 						method := httpFeat["Method"]
 						xlog.FromContextSafe(pxy.Context()).Warnf("[TunnelID=%s] Detect=HTTP Features=Method=%s Via=UDP At=%s", tid, method, time.Now().Format("2006-01-02 15:04:05"))
+					}
+
+					if pxy.serverCfg.TrafficMonitor.BlockVPN != nil && *pxy.serverCfg.TrafficMonitor.BlockVPN {
+						var vpnMatch bool
+						var vpnInfo map[string]string
+						content := []byte(udpMsg.Content)
+
+						if !vpnMatch {
+							vpnMatch, vpnInfo = protoinspect.DetectWireGuard(content)
+						}
+						if !vpnMatch {
+							vpnMatch, vpnInfo = protoinspect.DetectOpenVPN(content)
+						}
+						if !vpnMatch {
+							vpnMatch, vpnInfo = protoinspect.DetectIPSec(content)
+						}
+						if !vpnMatch {
+							vpnMatch, vpnInfo = protoinspect.DetectQUIC(content)
+						}
+						if !vpnMatch {
+							vpnMatch, vpnInfo = protoinspect.DetectSOCKS5(content)
+						}
+						if !vpnMatch {
+							vpnMatch, vpnInfo = protoinspect.DetectVLESS(content)
+						}
+
+						if vpnMatch {
+							protocol := vpnInfo["Protocol"]
+							shouldBlock := true
+							if len(pxy.serverCfg.TrafficMonitor.VPNProtocols) > 0 {
+								pLower := strings.ToLower(protocol)
+								shouldBlock = slices.Contains(pxy.serverCfg.TrafficMonitor.VPNProtocols, pLower)
+								// Handle alias mappings
+								if !shouldBlock && protocol == "QUIC" && slices.Contains(pxy.serverCfg.TrafficMonitor.VPNProtocols, "hy2") {
+									shouldBlock = true
+								}
+							}
+
+							if shouldBlock {
+								xl.Warnf("拦截UDP VPN流量: 协议=%s", protocol)
+								continue
+							}
+						}
 					}
 				}
 				if errRet = msg.WriteMsg(conn, udpMsg); errRet != nil {

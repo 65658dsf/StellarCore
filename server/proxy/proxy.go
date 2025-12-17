@@ -23,6 +23,7 @@ import (
 	"reflect"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,6 +47,7 @@ type detectRWC struct {
 	c         net.Conn
 	done      bool
 	serverCfg *v1.ServerConfig
+	ctx       context.Context
 }
 
 var proxyFactoryRegistry = map[reflect.Type]func(*BaseProxy) Proxy{}
@@ -239,21 +241,22 @@ func (pxy *BaseProxy) handleUserTCPConnection(userConn net.Conn) {
 		return
 	}
 
-    if pxy.serverCfg.TrafficMonitor.Enable {
-        name := pxy.GetName()
-        runID := ""
-        if pxy.GetLoginMsg() != nil {
-            runID = pxy.GetLoginMsg().RunID
-        }
-        skip := slices.Contains(pxy.serverCfg.TrafficMonitor.WhitelistProxies, name) || (runID != "" && slices.Contains(pxy.serverCfg.TrafficMonitor.WhitelistRunIDs, runID))
-        proxyType := v1.ProxyType(cfg.Type)
-        if !skip && proxyType != v1.ProxyTypeHTTP && proxyType != v1.ProxyTypeHTTPS {
-            var dr detectRWC
-            dr.c = userConn
-            dr.serverCfg = pxy.serverCfg
-            userConn = netpkg.WrapReadWriteCloserToConn(libio.WrapReadWriteCloser(&dr, &dr, func() error { return dr.c.Close() }), userConn)
-        }
-    }
+	if pxy.serverCfg.TrafficMonitor.Enable {
+		name := pxy.GetName()
+		runID := ""
+		if pxy.GetLoginMsg() != nil {
+			runID = pxy.GetLoginMsg().RunID
+		}
+		skip := slices.Contains(pxy.serverCfg.TrafficMonitor.WhitelistProxies, name) || (runID != "" && slices.Contains(pxy.serverCfg.TrafficMonitor.WhitelistRunIDs, runID))
+		proxyType := v1.ProxyType(cfg.Type)
+		if !skip && proxyType != v1.ProxyTypeHTTP && proxyType != v1.ProxyTypeHTTPS {
+			var dr detectRWC
+			dr.c = userConn
+			dr.serverCfg = pxy.serverCfg
+			dr.ctx = pxy.ctx
+			userConn = netpkg.WrapReadWriteCloserToConn(libio.WrapReadWriteCloser(&dr, &dr, func() error { return dr.c.Close() }), userConn)
+		}
+	}
 
 	// try all connections from the pool
 	workConn, err := pxy.GetWorkConnFromPool(userConn.RemoteAddr(), userConn.LocalAddr())
@@ -320,6 +323,45 @@ func (d *detectRWC) Read(p []byte) (int, error) {
 			d.done = true
 			return 0, io.EOF
 		}
+
+		if d.serverCfg != nil && d.serverCfg.TrafficMonitor.BlockVPN != nil && *d.serverCfg.TrafficMonitor.BlockVPN {
+			var vpnMatch bool
+			var vpnInfo map[string]string
+
+			if !vpnMatch {
+				vpnMatch, vpnInfo = protoinspect.DetectOpenVPN(p[:n])
+			}
+			if !vpnMatch {
+				vpnMatch, vpnInfo = protoinspect.DetectWireGuard(p[:n])
+			}
+			if !vpnMatch {
+				vpnMatch, vpnInfo = protoinspect.DetectSOCKS5(p[:n])
+			}
+			if !vpnMatch {
+				vpnMatch, vpnInfo = protoinspect.DetectVLESS(p[:n])
+			}
+			// Add VMess check if needed, though limited
+
+			if vpnMatch {
+				protocol := vpnInfo["Protocol"]
+				shouldBlock := true
+				if len(d.serverCfg.TrafficMonitor.VPNProtocols) > 0 {
+					pLower := strings.ToLower(protocol)
+					shouldBlock = slices.Contains(d.serverCfg.TrafficMonitor.VPNProtocols, pLower)
+					// Handle specific variations like openvpn-tcp
+					if !shouldBlock && strings.Contains(pLower, "openvpn") {
+						shouldBlock = slices.Contains(d.serverCfg.TrafficMonitor.VPNProtocols, "openvpn")
+					}
+				}
+
+				if shouldBlock {
+					xlog.FromContextSafe(d.ctx).Warnf("拦截VPN流量: 协议=%s", protocol)
+					d.done = true
+					return 0, io.EOF
+				}
+			}
+		}
+
 		d.done = true
 	}
 	return n, err

@@ -95,9 +95,9 @@ type ServerConfig struct {
 
 	AllowPorts []types.PortsRange `json:"allowPorts,omitempty"`
 
-    HTTPPlugins []HTTPPluginOptions `json:"httpPlugins,omitempty"`
+	HTTPPlugins []HTTPPluginOptions `json:"httpPlugins,omitempty"`
 
-    TrafficMonitor TrafficMonitorConfig `json:"trafficMonitor,omitempty"`
+	TrafficMonitor TrafficMonitorConfig `json:"trafficMonitor,omitempty"`
 }
 
 func (c *ServerConfig) Complete() {
@@ -121,11 +121,12 @@ func (c *ServerConfig) Complete() {
 	c.DetailedErrorsToClient = util.EmptyOr(c.DetailedErrorsToClient, lo.ToPtr(true))
 	c.UserConnTimeout = util.EmptyOr(c.UserConnTimeout, 10)
 	c.UDPPacketSize = util.EmptyOr(c.UDPPacketSize, 1500)
-    c.NatHoleAnalysisDataReserveHours = util.EmptyOr(c.NatHoleAnalysisDataReserveHours, 7*24)
-    c.TrafficMonitor.Enable = util.EmptyOr(c.TrafficMonitor.Enable, true)
-    c.TrafficMonitor.RespondNotFound = util.EmptyOr(c.TrafficMonitor.RespondNotFound, false)
-    c.TrafficMonitor.InspectTimeoutMS = util.EmptyOr(c.TrafficMonitor.InspectTimeoutMS, 80)
-    c.TrafficMonitor.RespondForbidden = util.EmptyOr(c.TrafficMonitor.RespondForbidden, true)
+	c.NatHoleAnalysisDataReserveHours = util.EmptyOr(c.NatHoleAnalysisDataReserveHours, 7*24)
+	c.TrafficMonitor.Enable = util.EmptyOr(c.TrafficMonitor.Enable, true)
+	c.TrafficMonitor.RespondNotFound = util.EmptyOr(c.TrafficMonitor.RespondNotFound, false)
+	c.TrafficMonitor.InspectTimeoutMS = util.EmptyOr(c.TrafficMonitor.InspectTimeoutMS, 80)
+	c.TrafficMonitor.RespondForbidden = util.EmptyOr(c.TrafficMonitor.RespondForbidden, true)
+	c.TrafficMonitor.BlockVPN = util.EmptyOr(c.TrafficMonitor.BlockVPN, lo.ToPtr(true))
 }
 
 type AuthServerConfig struct {
@@ -205,12 +206,14 @@ type TLSServerConfig struct {
 }
 
 type TrafficMonitorConfig struct {
-    Enable bool `json:"enable,omitempty"`
-    WhitelistProxies []string `json:"whitelistProxies,omitempty"`
-    WhitelistRunIDs []string `json:"whitelistRunIDs,omitempty"`
-    RespondNotFound bool `json:"respondNotFound,omitempty"`
-    InspectTimeoutMS int `json:"inspectTimeoutMS,omitempty"`
-    RespondForbidden bool `json:"respondForbidden,omitempty"`
+	Enable           bool     `json:"enable,omitempty"`
+	WhitelistProxies []string `json:"whitelistProxies,omitempty"`
+	WhitelistRunIDs  []string `json:"whitelistRunIDs,omitempty"`
+	RespondNotFound  bool     `json:"respondNotFound,omitempty"`
+	InspectTimeoutMS int      `json:"inspectTimeoutMS,omitempty"`
+	RespondForbidden bool     `json:"respondForbidden,omitempty"`
+	BlockVPN         *bool    `json:"blockVPN,omitempty"`
+	VPNProtocols     []string `json:"vpnProtocols,omitempty"`
 }
 
 type SSHTunnelGateway struct {
