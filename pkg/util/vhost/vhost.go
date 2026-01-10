@@ -121,6 +121,8 @@ type RouteConfig struct {
 	ResponseHeaders map[string]string
 	RouteByHTTPUser string
 
+	RedirectToHTTPS bool
+
 	CreateConnFn           CreateConnFunc
 	ChooseEndpointFn       ChooseEndpointFunc
 	CreateConnByEndpointFn CreateConnByEndpointFunc

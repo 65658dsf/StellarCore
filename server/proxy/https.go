@@ -30,6 +30,8 @@ func init() {
 type HTTPSProxy struct {
 	*BaseProxy
 	cfg *v1.HTTPSProxyConfig
+
+	redirectRoutes []*vhost.RouteConfig
 }
 
 func NewHTTPSProxy(baseProxy *BaseProxy) Proxy {
@@ -67,6 +69,17 @@ func (pxy *HTTPSProxy) Run() (remoteAddr string, err error) {
 		xl.Infof("https proxy listen for host [%s]", routeConfig.Domain)
 		pxy.listeners = append(pxy.listeners, l)
 		addrs = append(addrs, util.CanonicalAddr(routeConfig.Domain, pxy.serverCfg.VhostHTTPSPort))
+
+		// register http redirect to https
+		redirectRoute := &vhost.RouteConfig{
+			Domain:          domain,
+			Location:        "/",
+			RedirectToHTTPS: true,
+		}
+		if err := pxy.rc.HTTPReverseProxy.Register(*redirectRoute); err == nil {
+			pxy.redirectRoutes = append(pxy.redirectRoutes, redirectRoute)
+			xl.Infof("register http to https redirect for host [%s]", domain)
+		}
 	}
 
 	if pxy.cfg.SubDomain != "" {
@@ -79,6 +92,17 @@ func (pxy *HTTPSProxy) Run() (remoteAddr string, err error) {
 		xl.Infof("https proxy listen for host [%s]", routeConfig.Domain)
 		pxy.listeners = append(pxy.listeners, l)
 		addrs = append(addrs, util.CanonicalAddr(routeConfig.Domain, pxy.serverCfg.VhostHTTPSPort))
+
+		// register http redirect to https
+		redirectRoute := &vhost.RouteConfig{
+			Domain:          routeConfig.Domain,
+			Location:        "/",
+			RedirectToHTTPS: true,
+		}
+		if err := pxy.rc.HTTPReverseProxy.Register(*redirectRoute); err == nil {
+			pxy.redirectRoutes = append(pxy.redirectRoutes, redirectRoute)
+			xl.Infof("register http to https redirect for host [%s]", routeConfig.Domain)
+		}
 	}
 
 	pxy.startCommonTCPListenersHandler()
@@ -87,5 +111,8 @@ func (pxy *HTTPSProxy) Run() (remoteAddr string, err error) {
 }
 
 func (pxy *HTTPSProxy) Close() {
+	for _, route := range pxy.redirectRoutes {
+		pxy.rc.HTTPReverseProxy.UnRegister(*route)
+	}
 	pxy.BaseProxy.Close()
 }

@@ -329,6 +329,15 @@ func (rp *HTTPReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request)
 	}
 
 	newreq := rp.injectRequestInfoToCtx(req)
+	if rc, ok := newreq.Context().Value(RouteConfigKey).(*RouteConfig); ok && rc != nil && rc.RedirectToHTTPS {
+		target := "https://" + req.Host + req.URL.Path
+		if len(req.URL.RawQuery) > 0 {
+			target += "?" + req.URL.RawQuery
+		}
+		http.Redirect(rw, req, target, http.StatusMovedPermanently)
+		return
+	}
+
 	if req.Method == http.MethodConnect {
 		rp.connectHandler(rw, newreq)
 	} else {
