@@ -149,7 +149,7 @@ func WrapCloseNotifyConn(c net.Conn, closeFn func()) net.Conn {
 func (cc *CloseNotifyConn) Close() (err error) {
 	pflag := atomic.SwapInt32(&cc.closeFlag, 1)
 	if pflag == 0 {
-		err = cc.Close()
+		err = cc.Conn.Close()
 		if cc.closeFn != nil {
 			cc.closeFn()
 		}
@@ -197,11 +197,11 @@ func (statsConn *StatsConn) Close() (err error) {
 }
 
 type wrapQuicStream struct {
-	quic.Stream
-	c quic.Connection
+	*quic.Stream
+	c *quic.Conn
 }
 
-func QuicStreamToNetConn(s quic.Stream, c quic.Connection) net.Conn {
+func QuicStreamToNetConn(s *quic.Stream, c *quic.Conn) net.Conn {
 	return &wrapQuicStream{
 		Stream: s,
 		c:      c,

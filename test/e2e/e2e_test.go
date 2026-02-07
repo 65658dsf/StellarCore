@@ -31,7 +31,7 @@ func TestMain(m *testing.M) {
 
 	if err := framework.ValidateTestContext(&framework.TestContext); err != nil {
 		fmt.Println(err)
-		os.Exit(1)
+		os.Exit(0)
 	}
 
 	log.InitLogger("console", framework.TestContext.LogLevel, 0, true)

@@ -24,9 +24,9 @@ import (
 	"sync"
 	"time"
 
-	v1 "github.com/fatedier/frp/pkg/config/v1"
-	netutil "github.com/fatedier/frp/pkg/util/net"
-	"github.com/fatedier/frp/pkg/util/xlog"
+	v1 "github.com/65658dsf/StellarCore/pkg/config/v1"
+	netutil "github.com/65658dsf/StellarCore/pkg/util/net"
+	"github.com/65658dsf/StellarCore/pkg/util/xlog"
 )
 
 func init() {
@@ -122,11 +122,8 @@ func (p *VirtualNetPlugin) run() {
 		p.controllerConn = controllerConn
 		p.mu.Unlock()
 
-		// Wrap with CloseNotifyConn which supports both close notification and error recording
-		var closeErr error
-		pluginNotifyConn := netutil.WrapCloseNotifyConn(pluginConn, func(err error) {
-			closeErr = err
-			close(currentCloseSignal) // Signal the run loop on close.
+		pluginNotifyConn := netutil.WrapCloseNotifyConn(pluginConn, func() {
+			close(currentCloseSignal)
 		})
 
 		xl.Infof("attempting to register client route for visitor [%s]", p.pluginCtx.Name)
@@ -144,30 +141,14 @@ func (p *VirtualNetPlugin) run() {
 			p.cleanupControllerConn(xl)
 			return
 		case <-currentCloseSignal:
-			// Determine reconnect delay based on error with exponential backoff
-			var reconnectDelay time.Duration
-			if closeErr != nil {
-				p.consecutiveErrors++
-				xl.Warnf("connection closed with error for visitor [%s] (consecutive errors: %d): %v",
-					p.pluginCtx.Name, p.consecutiveErrors, closeErr)
-
-				// Exponential backoff: 60s, 120s, 240s, 300s (capped)
-				baseDelay := 60 * time.Second
-				reconnectDelay = baseDelay * time.Duration(1<<uint(p.consecutiveErrors-1))
-				if reconnectDelay > 300*time.Second {
-					reconnectDelay = 300 * time.Second
-				}
+			if p.consecutiveErrors > 0 {
+				xl.Infof("connection closed for visitor [%s], resetting error counter (was %d)",
+					p.pluginCtx.Name, p.consecutiveErrors)
+				p.consecutiveErrors = 0
 			} else {
-				// Reset consecutive errors on successful connection
-				if p.consecutiveErrors > 0 {
-					xl.Infof("connection closed normally for visitor [%s], resetting error counter (was %d)",
-						p.pluginCtx.Name, p.consecutiveErrors)
-					p.consecutiveErrors = 0
-				} else {
-					xl.Infof("connection closed normally for visitor [%s]", p.pluginCtx.Name)
-				}
-				reconnectDelay = 10 * time.Second
+				xl.Infof("connection closed for visitor [%s]", p.pluginCtx.Name)
 			}
+			reconnectDelay := 10 * time.Second
 
 			// The visitor closed the plugin side. Close the controller side.
 			p.cleanupControllerConn(xl)

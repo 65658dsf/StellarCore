@@ -13,9 +13,6 @@ import (
 	"math/big"
 	"net"
 	"time"
-
-	"k8s.io/client-go/util/cert"
-	"k8s.io/client-go/util/keyutil"
 )
 
 type SelfSignedCertGenerator struct {
@@ -48,7 +45,7 @@ func (cp *SelfSignedCertGenerator) Generate(commonName string) (*Artifacts, erro
 		if err != nil {
 			return nil, fmt.Errorf("failed to create the CA private key: %v", err)
 		}
-		signingCert, err = cert.NewSelfSignedCACert(cert.Config{CommonName: commonName}, signingKey)
+		signingCert, err = NewSelfSignedCACert(Config{CommonName: commonName}, signingKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create the CA cert: %v", err)
 		}
@@ -68,10 +65,10 @@ func (cp *SelfSignedCertGenerator) Generate(commonName string) (*Artifacts, erro
 		return nil, fmt.Errorf("failed to create the private key: %v", err)
 	}
 	signedCert, err := NewSignedCert(
-		cert.Config{
+		Config{
 			CommonName: commonName,
 			Usages:     []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
-			AltNames:   cert.AltNames{IPs: altIPs, DNSNames: DNSNames},
+			AltNames:   AltNames{IPs: altIPs, DNSNames: DNSNames},
 		},
 		key, signingCert, signingKey,
 	)
@@ -93,7 +90,7 @@ func (cp *SelfSignedCertGenerator) validCACert() (bool, *rsa.PrivateKey, *x509.C
 	}
 
 	var ok bool
-	key, err := keyutil.ParsePrivateKeyPEM(cp.caKey)
+	key, err := ParsePrivateKeyPEM(cp.caKey)
 	if err != nil {
 		return false, nil, nil
 	}
@@ -102,7 +99,7 @@ func (cp *SelfSignedCertGenerator) validCACert() (bool, *rsa.PrivateKey, *x509.C
 		return false, nil, nil
 	}
 
-	certs, err := cert.ParseCertsPEM(cp.caCert)
+	certs, err := ParseCertsPEM(cp.caCert)
 	if err != nil {
 		return false, nil, nil
 	}
@@ -112,13 +109,25 @@ func (cp *SelfSignedCertGenerator) validCACert() (bool, *rsa.PrivateKey, *x509.C
 	return true, privateKey, certs[0]
 }
 
+type AltNames struct {
+	DNSNames []string
+	IPs      []net.IP
+}
+
+type Config struct {
+	CommonName   string
+	Organization []string
+	Usages       []x509.ExtKeyUsage
+	AltNames     AltNames
+}
+
 // NewPrivateKey creates an RSA private key
 func NewPrivateKey() (*rsa.PrivateKey, error) {
 	return rsa.GenerateKey(rand.Reader, 2048)
 }
 
 // NewSignedCert creates a signed certificate using the given CA certificate and key
-func NewSignedCert(cfg cert.Config, key crypto.Signer, caCert *x509.Certificate, caKey crypto.Signer) (*x509.Certificate, error) {
+func NewSignedCert(cfg Config, key crypto.Signer, caCert *x509.Certificate, caKey crypto.Signer) (*x509.Certificate, error) {
 	serial, err := rand.Int(rand.Reader, new(big.Int).SetInt64(math.MaxInt64))
 	if err != nil {
 		return nil, err
@@ -150,10 +159,84 @@ func NewSignedCert(cfg cert.Config, key crypto.Signer, caCert *x509.Certificate,
 	return x509.ParseCertificate(certDERBytes)
 }
 
+func NewSelfSignedCACert(cfg Config, key *rsa.PrivateKey) (*x509.Certificate, error) {
+	serial, err := rand.Int(rand.Reader, new(big.Int).SetInt64(math.MaxInt64))
+	if err != nil {
+		return nil, err
+	}
+	if cfg.CommonName == "" {
+		return nil, errors.New("must specify a CommonName")
+	}
+
+	now := time.Now().UTC()
+	certTmpl := x509.Certificate{
+		SerialNumber: serial,
+		Subject: pkix.Name{
+			CommonName:   cfg.CommonName,
+			Organization: cfg.Organization,
+		},
+		NotBefore:             now.Add(-10 * time.Minute),
+		NotAfter:              now.Add(10 * 365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+
+	certDERBytes, err := x509.CreateCertificate(rand.Reader, &certTmpl, &certTmpl, key.Public(), key)
+	if err != nil {
+		return nil, err
+	}
+	return x509.ParseCertificate(certDERBytes)
+}
+
+func ParseCertsPEM(pemCerts []byte) ([]*x509.Certificate, error) {
+	var certs []*x509.Certificate
+	for {
+		block, rest := pem.Decode(pemCerts)
+		if block == nil {
+			break
+		}
+		pemCerts = rest
+		if block.Type != certificateBlockType {
+			continue
+		}
+		c, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, err
+		}
+		certs = append(certs, c)
+	}
+	if len(certs) == 0 {
+		return nil, errors.New("no certificates found")
+	}
+	return certs, nil
+}
+
+func ParsePrivateKeyPEM(pemKey []byte) (any, error) {
+	block, _ := pem.Decode(pemKey)
+	if block == nil {
+		return nil, errors.New("failed to decode PEM private key")
+	}
+
+	if pk, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+		return pk, nil
+	}
+	pk, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	return pk, nil
+}
+
+const (
+	rsaPrivateKeyBlockType = "RSA PRIVATE KEY"
+	certificateBlockType   = "CERTIFICATE"
+)
+
 // EncodePrivateKeyPEM returns PEM-encoded private key data
 func EncodePrivateKeyPEM(key *rsa.PrivateKey) []byte {
 	block := pem.Block{
-		Type:  keyutil.RSAPrivateKeyBlockType,
+		Type:  rsaPrivateKeyBlockType,
 		Bytes: x509.MarshalPKCS1PrivateKey(key),
 	}
 	return pem.EncodeToMemory(&block)
@@ -162,7 +245,7 @@ func EncodePrivateKeyPEM(key *rsa.PrivateKey) []byte {
 // EncodeCertPEM returns PEM-encoded certificate data
 func EncodeCertPEM(ct *x509.Certificate) []byte {
 	block := pem.Block{
-		Type:  cert.CertificateBlockType,
+		Type:  certificateBlockType,
 		Bytes: ct.Raw,
 	}
 	return pem.EncodeToMemory(&block)

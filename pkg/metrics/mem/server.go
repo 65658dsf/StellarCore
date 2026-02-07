@@ -260,6 +260,31 @@ func (m *serverMetrics) GetProxiesByTypeAndName(proxyType string, proxyName stri
 	return
 }
 
+func (m *serverMetrics) GetProxyByName(proxyName string) (res *ProxyStats) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	proxyStats, ok := m.info.ProxyStatistics[proxyName]
+	if !ok {
+		return nil
+	}
+
+	res = &ProxyStats{
+		Name:            proxyName,
+		Type:            proxyStats.ProxyType,
+		TodayTrafficIn:  proxyStats.TrafficIn.TodayCount(),
+		TodayTrafficOut: proxyStats.TrafficOut.TodayCount(),
+		CurConns:        int64(proxyStats.CurConns.Count()),
+	}
+	if !proxyStats.LastStartTime.IsZero() {
+		res.LastStartTime = proxyStats.LastStartTime.Format("01-02 15:04:05")
+	}
+	if !proxyStats.LastCloseTime.IsZero() {
+		res.LastCloseTime = proxyStats.LastCloseTime.Format("01-02 15:04:05")
+	}
+	return res
+}
+
 func (m *serverMetrics) GetProxyTraffic(name string) (res *ProxyTrafficInfo) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

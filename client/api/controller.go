@@ -24,13 +24,13 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/fatedier/frp/client/proxy"
-	"github.com/fatedier/frp/pkg/config"
-	v1 "github.com/fatedier/frp/pkg/config/v1"
-	"github.com/fatedier/frp/pkg/config/v1/validation"
-	"github.com/fatedier/frp/pkg/policy/security"
-	httppkg "github.com/fatedier/frp/pkg/util/http"
-	"github.com/fatedier/frp/pkg/util/log"
+	"github.com/65658dsf/StellarCore/client/proxy"
+	"github.com/65658dsf/StellarCore/pkg/config"
+	v1 "github.com/65658dsf/StellarCore/pkg/config/v1"
+	"github.com/65658dsf/StellarCore/pkg/config/v1/validation"
+	"github.com/65658dsf/StellarCore/pkg/policy/security"
+	httppkg "github.com/65658dsf/StellarCore/pkg/util/http"
+	"github.com/65658dsf/StellarCore/pkg/util/log"
 )
 
 // Controller handles HTTP API requests for frpc.
@@ -91,7 +91,7 @@ func (c *Controller) Reload(ctx *httppkg.Context) (any, error) {
 		return nil, httppkg.NewError(http.StatusBadRequest, err.Error())
 	}
 
-	if _, err := validation.ValidateAllClientConfig(cliCfg, proxyCfgs, visitorCfgs, c.unsafeFeatures); err != nil {
+	if _, err := validation.ValidateAllClientConfig(cliCfg, proxyCfgs, visitorCfgs); err != nil {
 		log.Warnf("reload frpc proxy config error: %s", err.Error())
 		return nil, httppkg.NewError(http.StatusBadRequest, err.Error())
 	}

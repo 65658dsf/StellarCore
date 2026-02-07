@@ -3,10 +3,10 @@ package frps
 import (
 	"embed"
 
-	"github.com/fatedier/frp/assets"
+	"github.com/65658dsf/StellarCore/assets"
 )
 
-//go:embed dist
+//go:embed public
 var EmbedFS embed.FS
 
 func init() {

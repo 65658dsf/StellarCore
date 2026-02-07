@@ -3,7 +3,7 @@ package validation
 import (
 	"fmt"
 
-	"github.com/fatedier/frp/pkg/policy/security"
+	"github.com/65658dsf/StellarCore/pkg/policy/security"
 )
 
 // ConfigValidator holds the context dependencies for configuration validation.

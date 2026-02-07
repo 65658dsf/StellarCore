@@ -27,9 +27,9 @@ import (
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 
-	v1 "github.com/fatedier/frp/pkg/config/v1"
-	"github.com/fatedier/frp/pkg/util/log"
-	"github.com/fatedier/frp/pkg/util/xlog"
+	v1 "github.com/65658dsf/StellarCore/pkg/config/v1"
+	"github.com/65658dsf/StellarCore/pkg/util/log"
+	"github.com/65658dsf/StellarCore/pkg/util/xlog"
 )
 
 const (

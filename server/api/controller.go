@@ -23,14 +23,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fatedier/frp/pkg/config/types"
-	v1 "github.com/fatedier/frp/pkg/config/v1"
-	"github.com/fatedier/frp/pkg/metrics/mem"
-	httppkg "github.com/fatedier/frp/pkg/util/http"
-	"github.com/fatedier/frp/pkg/util/log"
-	"github.com/fatedier/frp/pkg/util/version"
-	"github.com/fatedier/frp/server/proxy"
-	"github.com/fatedier/frp/server/registry"
+	"github.com/65658dsf/StellarCore/pkg/config/types"
+	v1 "github.com/65658dsf/StellarCore/pkg/config/v1"
+	"github.com/65658dsf/StellarCore/pkg/metrics/mem"
+	httppkg "github.com/65658dsf/StellarCore/pkg/util/http"
+	"github.com/65658dsf/StellarCore/pkg/util/log"
+	"github.com/65658dsf/StellarCore/pkg/util/version"
+	"github.com/65658dsf/StellarCore/server/proxy"
+	"github.com/65658dsf/StellarCore/server/registry"
 )
 
 type Controller struct {
@@ -215,8 +215,6 @@ func (c *Controller) APIProxyByName(ctx *httppkg.Context) (any, error) {
 
 	proxyInfo := GetProxyStatsResp{
 		Name:            ps.Name,
-		User:            ps.User,
-		ClientID:        ps.ClientID,
 		TodayTrafficIn:  ps.TodayTrafficIn,
 		TodayTrafficOut: ps.TodayTrafficOut,
 		CurConns:        ps.CurConns,
@@ -237,6 +235,8 @@ func (c *Controller) APIProxyByName(ctx *httppkg.Context) (any, error) {
 		}
 		proxyInfo.Status = "online"
 		c.fillProxyClientInfo(&proxyClientInfo{
+			user:          &proxyInfo.User,
+			clientID:      &proxyInfo.ClientID,
 			clientVersion: &proxyInfo.ClientVersion,
 		}, pxy)
 	} else {
@@ -261,10 +261,7 @@ func (c *Controller) getProxyStatsByType(proxyType string) (proxyInfos []*ProxyS
 	proxyStats := mem.StatsCollector.GetProxiesByType(proxyType)
 	proxyInfos = make([]*ProxyStatsInfo, 0, len(proxyStats))
 	for _, ps := range proxyStats {
-		proxyInfo := &ProxyStatsInfo{
-			User:     ps.User,
-			ClientID: ps.ClientID,
-		}
+		proxyInfo := &ProxyStatsInfo{}
 		if pxy, ok := c.pxyManager.GetByName(ps.Name); ok {
 			content, err := json.Marshal(pxy.GetConfigurer())
 			if err != nil {
@@ -278,6 +275,8 @@ func (c *Controller) getProxyStatsByType(proxyType string) (proxyInfos []*ProxyS
 			}
 			proxyInfo.Status = "online"
 			c.fillProxyClientInfo(&proxyClientInfo{
+				user:          &proxyInfo.User,
+				clientID:      &proxyInfo.ClientID,
 				clientVersion: &proxyInfo.ClientVersion,
 			}, pxy)
 		} else {
@@ -301,8 +300,6 @@ func (c *Controller) getProxyStatsByTypeAndName(proxyType string, proxyName stri
 		code = 404
 		msg = "no proxy info found"
 	} else {
-		proxyInfo.User = ps.User
-		proxyInfo.ClientID = ps.ClientID
 		if pxy, ok := c.pxyManager.GetByName(proxyName); ok {
 			content, err := json.Marshal(pxy.GetConfigurer())
 			if err != nil {
@@ -319,6 +316,11 @@ func (c *Controller) getProxyStatsByTypeAndName(proxyType string, proxyName stri
 				return
 			}
 			proxyInfo.Status = "online"
+			c.fillProxyClientInfo(&proxyClientInfo{
+				user:          &proxyInfo.User,
+				clientID:      &proxyInfo.ClientID,
+				clientVersion: &proxyInfo.ClientVersion,
+			}, pxy)
 		} else {
 			proxyInfo.Status = "offline"
 		}
@@ -375,10 +377,7 @@ func (c *Controller) fillProxyClientInfo(proxyInfo *proxyClientInfo, pxy proxy.P
 		return
 	}
 	if proxyInfo.clientID != nil {
-		*proxyInfo.clientID = loginMsg.ClientID
-		if *proxyInfo.clientID == "" {
-			*proxyInfo.clientID = loginMsg.RunID
-		}
+		*proxyInfo.clientID = loginMsg.RunID
 	}
 }
 
