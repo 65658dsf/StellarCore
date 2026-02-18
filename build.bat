@@ -4,7 +4,7 @@ chcp 65001 >nul 2>&1
 setlocal EnableDelayedExpansion
 
 :: 版本号
-set VERSION=0.61.2
+set VERSION=0.67.0
 set BINARY_NAME=StellarFrpc
 
 :: 获取Git版本号
