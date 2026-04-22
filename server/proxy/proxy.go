@@ -21,9 +21,7 @@ import (
 	"net"
 	"net/http"
 	"reflect"
-	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -44,10 +42,16 @@ import (
 )
 
 type detectRWC struct {
-	c         net.Conn
-	done      bool
-	serverCfg *v1.ServerConfig
-	ctx       context.Context
+	c          net.Conn
+	serverCfg  *v1.ServerConfig
+	ctx        context.Context
+	proxyName  string
+	runID      string
+	inspected  bool
+	blocked    bool
+	buffer     []byte
+	bufferPos  int
+	pendingErr error
 }
 
 var proxyFactoryRegistry = map[reflect.Type]func(*BaseProxy) Proxy{}
@@ -247,13 +251,14 @@ func (pxy *BaseProxy) handleUserTCPConnection(userConn net.Conn) {
 		if pxy.GetLoginMsg() != nil {
 			runID = pxy.GetLoginMsg().RunID
 		}
-		skip := slices.Contains(pxy.serverCfg.TrafficMonitor.WhitelistProxies, name) || (runID != "" && slices.Contains(pxy.serverCfg.TrafficMonitor.WhitelistRunIDs, runID))
 		proxyType := v1.ProxyType(cfg.Type)
-		if !skip && proxyType != v1.ProxyTypeHTTP && proxyType != v1.ProxyTypeHTTPS {
+		if !shouldSkipTrafficInspection(pxy.serverCfg, name, runID) && proxyType != v1.ProxyTypeHTTP && proxyType != v1.ProxyTypeHTTPS {
 			var dr detectRWC
 			dr.c = userConn
 			dr.serverCfg = pxy.serverCfg
 			dr.ctx = pxy.ctx
+			dr.proxyName = name
+			dr.runID = runID
 			userConn = netpkg.WrapReadWriteCloserToConn(libio.WrapReadWriteCloser(&dr, &dr, func() error { return dr.c.Close() }), userConn)
 		}
 	}
@@ -301,11 +306,118 @@ func (pxy *BaseProxy) handleUserTCPConnection(userConn net.Conn) {
 }
 
 func (d *detectRWC) Read(p []byte) (int, error) {
+	if !d.inspected {
+		d.inspect()
+	}
+	if d.blocked {
+		return 0, io.EOF
+	}
+	if d.bufferPos < len(d.buffer) {
+		n := copy(p, d.buffer[d.bufferPos:])
+		d.bufferPos += n
+		return n, nil
+	}
+	if d.pendingErr != nil {
+		err := d.pendingErr
+		d.pendingErr = nil
+		return 0, err
+	}
+	return d.c.Read(p)
+}
+
+func (d *detectRWC) inspect() {
+	d.inspected = true
+	if d.serverCfg == nil {
+		return
+	}
+
+	maxBytes := d.serverCfg.TrafficMonitor.InspectMaxBytes
+	if maxBytes <= 0 {
+		maxBytes = 512
+	}
+	timeout := time.Duration(d.serverCfg.TrafficMonitor.InspectTimeoutMS) * time.Millisecond
+	if timeout < 0 {
+		timeout = 0
+	}
+	deadline := time.Now().Add(timeout)
+	tmp := make([]byte, 256)
+	var finalResult protoinspect.DetectionResult
+
+	for len(d.buffer) < maxBytes {
+		if timeout > 0 {
+			_ = d.c.SetReadDeadline(deadline)
+		}
+		want := len(tmp)
+		if remaining := maxBytes - len(d.buffer); remaining < want {
+			want = remaining
+		}
+
+		n, err := d.c.Read(tmp[:want])
+		if n > 0 {
+			d.buffer = append(d.buffer, tmp[:n]...)
+		}
+
+		httpResult := protoinspect.DetectHTTP(d.buffer)
+		if httpResult.Matched {
+			d.respondHTTPBlock(httpResult)
+			d.blocked = true
+			observeTrafficDetection(d.ctx, detectionActionBlock, "tcp", d.proxyName, d.runID, len(d.buffer), httpResult)
+			break
+		}
+
+		finalResult = protoinspect.DetectTCPVPN(d.buffer)
+		if shouldBlockVPNDetection(d.serverCfg, finalResult) {
+			d.blocked = true
+			observeTrafficDetection(d.ctx, detectionActionBlock, "tcp", d.proxyName, d.runID, len(d.buffer), finalResult)
+			break
+		}
+
+		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				break
+			}
+			d.pendingErr = err
+			break
+		}
+
+		if !finalResult.Matched || !finalResult.NeedMoreData || timeout == 0 || !time.Now().Before(deadline) {
+			break
+		}
+	}
+
+	_ = d.c.SetReadDeadline(time.Time{})
+	if d.blocked || !finalResult.Matched {
+		return
+	}
+	if finalResult.Confidence >= 60 || finalResult.NeedMoreData {
+		observeTrafficDetection(d.ctx, detectionActionSuspicious, "tcp", d.proxyName, d.runID, len(d.buffer), finalResult)
+		return
+	}
+	observeTrafficDetection(d.ctx, detectionActionAllow, "tcp", d.proxyName, d.runID, len(d.buffer), finalResult)
+}
+
+func (d *detectRWC) respondHTTPBlock(result protoinspect.DetectionResult) {
+	if result.Features["Method"] == "" {
+		return
+	}
+	var resp *http.Response
+	if d.serverCfg.TrafficMonitor.RespondForbidden {
+		resp = vhost.ForbiddenResponse()
+	} else if d.serverCfg.TrafficMonitor.RespondNotFound {
+		resp = vhost.NotFoundResponse()
+	}
+	if resp != nil {
+		_ = resp.Write(d.c)
+	}
+}
+
+func (d *detectRWC) Write(p []byte) (int, error) { return d.c.Write(p) }
+func (d *detectRWC) Close() error                { return d.c.Close() }
+
+/*
+func (d *detectRWC) legacyReadForReference(p []byte) (int, error) {
 	n, err := d.c.Read(p)
-	if !d.done && n > 0 {
-		httpMatch, httpFeat := protoinspect.DetectHTTP(p[:n])
-		tlsMatch, _, _ := protoinspect.DetectTLSClientHello(p[:n])
-		if httpMatch || tlsMatch {
+	if false {
 			if httpMatch {
 				method := httpFeat["Method"]
 				if method != "" {
@@ -369,6 +481,8 @@ func (d *detectRWC) Read(p []byte) (int, error) {
 
 func (d *detectRWC) Write(p []byte) (int, error) { return d.c.Write(p) }
 func (d *detectRWC) Close() error                { return d.c.Close() }
+
+*/
 
 type Options struct {
 	UserInfo           plugin.UserInfo

@@ -20,9 +20,7 @@ import (
 	"io"
 	"net"
 	"reflect"
-	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/fatedier/golib/errors"
@@ -34,8 +32,6 @@ import (
 	"github.com/65658dsf/StellarCore/pkg/util/limit"
 	netpkg "github.com/65658dsf/StellarCore/pkg/util/net"
 	"github.com/65658dsf/StellarCore/pkg/util/protoinspect"
-	"github.com/65658dsf/StellarCore/pkg/util/util"
-	"github.com/65658dsf/StellarCore/pkg/util/xlog"
 	"github.com/65658dsf/StellarCore/server/metrics"
 )
 
@@ -160,6 +156,10 @@ func (pxy *UDPProxy) Run() (remoteAddr string, err error) {
 	// send message to workConn
 	workConnSenderFn := func(conn net.Conn, ctx context.Context) {
 		var errRet error
+		runID := ""
+		if pxy.GetLoginMsg() != nil {
+			runID = pxy.GetLoginMsg().RunID
+		}
 		for {
 			select {
 			case udpMsg, ok := <-pxy.sendCh:
@@ -167,7 +167,27 @@ func (pxy *UDPProxy) Run() (remoteAddr string, err error) {
 					xl.Infof("sender goroutine for udp work connection closed")
 					return
 				}
-				if pxy.serverCfg.TrafficMonitor.Enable {
+				if pxy.serverCfg.TrafficMonitor.Enable && !shouldSkipTrafficInspection(pxy.serverCfg, pxy.GetName(), runID) {
+					content := []byte(udpMsg.Content)
+					httpResult := protoinspect.DetectHTTP(content)
+					if httpResult.Matched {
+						observeTrafficDetection(pxy.Context(), detectionActionSuspicious, "udp", pxy.GetName(), runID, len(content), httpResult)
+					}
+
+					vpnResult := protoinspect.DetectUDPVPN(content)
+					if vpnResult.Matched {
+						if shouldBlockVPNDetection(pxy.serverCfg, vpnResult) {
+							observeTrafficDetection(pxy.Context(), detectionActionBlock, "udp", pxy.GetName(), runID, len(content), vpnResult)
+							continue
+						}
+						if vpnResult.Confidence >= 60 || vpnResult.NeedMoreData {
+							observeTrafficDetection(pxy.Context(), detectionActionSuspicious, "udp", pxy.GetName(), runID, len(content), vpnResult)
+						} else {
+							observeTrafficDetection(pxy.Context(), detectionActionAllow, "udp", pxy.GetName(), runID, len(content), vpnResult)
+						}
+					}
+				}
+				/*
 					httpMatch, httpFeat := protoinspect.DetectHTTP([]byte(udpMsg.Content))
 					if httpMatch {
 						tid, _ := util.RandID()
@@ -217,7 +237,7 @@ func (pxy *UDPProxy) Run() (remoteAddr string, err error) {
 							}
 						}
 					}
-				}
+				*/
 				if errRet = msg.WriteMsg(conn, udpMsg); errRet != nil {
 					xl.Infof("sender goroutine for udp work connection closed: %v", errRet)
 					conn.Close()
