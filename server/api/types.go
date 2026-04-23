@@ -90,13 +90,17 @@ type STCPOutConf struct {
 	BaseOutConf
 }
 
+type SUDPOutConf struct {
+	BaseOutConf
+}
+
 type XTCPOutConf struct {
 	BaseOutConf
 }
 
-// Get proxy info.
 type ProxyStatsInfo struct {
 	Name            string `json:"name"`
+	RunID           string `json:"runId,omitempty"`
 	Conf            any    `json:"conf"`
 	User            string `json:"user,omitempty"`
 	ClientID        string `json:"clientID,omitempty"`
@@ -113,9 +117,9 @@ type GetProxyInfoResp struct {
 	Proxies []*ProxyStatsInfo `json:"proxies"`
 }
 
-// Get proxy info by name.
 type GetProxyStatsResp struct {
 	Name            string `json:"name"`
+	RunID           string `json:"runId,omitempty"`
 	Conf            any    `json:"conf"`
 	User            string `json:"user,omitempty"`
 	ClientID        string `json:"clientID,omitempty"`
@@ -128,9 +132,19 @@ type GetProxyStatsResp struct {
 	Status          string `json:"status"`
 }
 
-// /api/traffic/:name
 type GetProxyTrafficResp struct {
 	Name       string  `json:"name"`
 	TrafficIn  []int64 `json:"trafficIn"`
 	TrafficOut []int64 `json:"trafficOut"`
+}
+
+type TrafficTrendResp struct {
+	Timestamps []string `json:"timestamps"`
+	InData     []int64  `json:"inData"`
+	OutData    []int64  `json:"outData"`
+}
+
+type CloseUserResp struct {
+	Status int    `json:"status"`
+	Msg    string `json:"message"`
 }

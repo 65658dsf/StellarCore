@@ -1,27 +1,29 @@
 <template>
-  <ProxyView :proxies="proxies" proxyType="sudp" @refresh="fetchData"/>
+  <ProxyView :proxies="proxies" proxyType="sudp" @refresh="fetchData" />
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { SUDPProxy } from '../utils/proxy.js'
+import { onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import { getProxiesByType } from '../api/proxy'
+import { SUDPProxy } from '../utils/proxy'
 import ProxyView from './ProxyView.vue'
 
-let proxies = ref<SUDPProxy[]>([])
+const proxies = ref<SUDPProxy[]>([])
 
-const fetchData = () => {
-  fetch('../api/proxy/sudp', { credentials: 'include' })
-    .then((res) => {
-      return res.json()
+const fetchData = async () => {
+  try {
+    const json = await getProxiesByType('sudp')
+    proxies.value = json.proxies.map((proxyStats) => new SUDPProxy(proxyStats))
+  } catch (error: any) {
+    ElMessage({
+      message: `获取 SUDP 代理失败: ${error.message}`,
+      type: 'error',
     })
-    .then((json) => {
-      proxies.value = []
-      for (let proxyStats of json.proxies) {
-        proxies.value.push(new SUDPProxy(proxyStats))
-      }
-    })
+  }
 }
-fetchData()
-</script>
 
-<style></style>
+onMounted(() => {
+  fetchData()
+})
+</script>

@@ -3,30 +3,29 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { DrawProxyTrafficChart } from '../utils/chart.js'
+import { getProxyTraffic } from '../api/proxy'
+import { DrawProxyTrafficChart } from '../utils/chart'
 
 const props = defineProps<{
   proxyName: string
 }>()
 
-const fetchData = () => {
-  let url = '../api/traffic/' + props.proxyName
-  fetch(url, { credentials: 'include' })
-    .then((res) => {
-      return res.json()
+const fetchData = async () => {
+  try {
+    const json = await getProxyTraffic(props.proxyName)
+    DrawProxyTrafficChart(props.proxyName, json.trafficIn, json.trafficOut)
+  } catch (error: any) {
+    ElMessage({
+      showClose: true,
+      message: `获取流量信息失败: ${error.message}`,
+      type: 'warning',
     })
-    .then((json) => {
-      DrawProxyTrafficChart(props.proxyName, json.trafficIn, json.trafficOut)
-    })
-    .catch((err) => {
-      ElMessage({
-        showClose: true,
-        message: '获取流量信息失败' + err,
-        type: 'warning',
-      })
-    })
+  }
 }
-fetchData()
+
+onMounted(() => {
+  fetchData()
+})
 </script>
-<style></style>

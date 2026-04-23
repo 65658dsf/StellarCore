@@ -1,42 +1,46 @@
 <template>
-  <ProxyView :proxies="proxies" proxyType="https" @refresh="fetchData"/>
+  <ProxyView :proxies="proxies" proxyType="https" @refresh="fetchData" />
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { HTTPSProxy } from '../utils/proxy.js'
+import { onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import { getProxiesByType } from '../api/proxy'
+import { getServerInfo } from '../api/server'
+import { HTTPSProxy } from '../utils/proxy'
 import ProxyView from './ProxyView.vue'
 
-let proxies = ref<HTTPSProxy[]>([])
+const proxies = ref<HTTPSProxy[]>([])
 
-const fetchData = () => {
-  let vhostHTTPSPort: number
-  let subdomainHost: string
-  fetch('../api/serverinfo', { credentials: 'include' })
-    .then((res) => {
-      return res.json()
+const fetchData = async () => {
+  try {
+    const [serverInfo, proxyInfo] = await Promise.all([
+      getServerInfo(),
+      getProxiesByType('https'),
+    ])
+
+    if (!serverInfo.vhostHTTPSPort) {
+      proxies.value = []
+      return
+    }
+
+    proxies.value = proxyInfo.proxies.map(
+      (proxyStats) =>
+        new HTTPSProxy(
+          proxyStats,
+          serverInfo.vhostHTTPSPort,
+          serverInfo.subdomainHost,
+        ),
+    )
+  } catch (error: any) {
+    ElMessage({
+      message: `获取 HTTPS 代理失败: ${error.message}`,
+      type: 'error',
     })
-    .then((json) => {
-      vhostHTTPSPort = json.vhostHTTPSPort
-      subdomainHost = json.subdomainHost
-      if (vhostHTTPSPort == null || vhostHTTPSPort == 0) {
-        return
-      }
-      fetch('../api/proxy/https', { credentials: 'include' })
-        .then((res) => {
-          return res.json()
-        })
-        .then((json) => {
-          proxies.value = []
-          for (let proxyStats of json.proxies) {
-            proxies.value.push(
-              new HTTPSProxy(proxyStats, vhostHTTPSPort, subdomainHost)
-            )
-          }
-        })
-    })
+  }
 }
-fetchData()
-</script>
 
-<style></style>
+onMounted(() => {
+  fetchData()
+})
+</script>

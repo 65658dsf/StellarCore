@@ -1,6 +1,8 @@
 class BaseProxy {
   name: string
   type: string
+  user: string
+  clientID: string
   annotations: Map<string, string>
   encryption: boolean
   compression: boolean
@@ -19,10 +21,14 @@ class BaseProxy {
   hostHeaderRewrite: string
   locations: string
   subdomain: string
+  multiplexer: string
+  routeByHTTPUser: string
 
   constructor(proxyStats: any) {
     this.name = proxyStats.name
     this.type = ''
+    this.user = proxyStats.user || ''
+    this.clientID = proxyStats.clientID || ''
     this.annotations = new Map<string, string>()
     if (proxyStats.conf?.annotations) {
       for (const key in proxyStats.conf.annotations) {
@@ -51,6 +57,8 @@ class BaseProxy {
     this.hostHeaderRewrite = ''
     this.locations = ''
     this.subdomain = ''
+    this.multiplexer = ''
+    this.routeByHTTPUser = ''
   }
 }
 
@@ -113,15 +121,10 @@ class HTTPSProxy extends BaseProxy {
 }
 
 class TCPMuxProxy extends BaseProxy {
-  multiplexer: string
-  routeByHTTPUser: string
-
   constructor(proxyStats: any, port: number, subdomainHost: string) {
     super(proxyStats)
     this.type = 'tcpmux'
     this.port = port
-    this.multiplexer = ''
-    this.routeByHTTPUser = ''
 
     if (proxyStats.conf) {
       this.customDomains = proxyStats.conf.customDomains || this.customDomains

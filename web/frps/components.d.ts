@@ -7,7 +7,10 @@ export {}
 
 declare module 'vue' {
   export interface GlobalComponents {
+    ClientCard: typeof import('./src/components/ClientCard.vue')['default']
+    ConfigBrowser: typeof import('./src/components/ConfigBrowser.vue')['default']
     ElButton: typeof import('element-plus/es')['ElButton']
+    ElCard: typeof import('element-plus/es')['ElCard']
     ElCol: typeof import('element-plus/es')['ElCol']
     ElDialog: typeof import('element-plus/es')['ElDialog']
     ElDivider: typeof import('element-plus/es')['ElDivider']
@@ -17,11 +20,10 @@ declare module 'vue' {
     ElForm: typeof import('element-plus/es')['ElForm']
     ElFormItem: typeof import('element-plus/es')['ElFormItem']
     ElIcon: typeof import('element-plus/es')['ElIcon']
+    ElInput: typeof import('element-plus/es')['ElInput']
     ElMenu: typeof import('element-plus/es')['ElMenu']
     ElMenuItem: typeof import('element-plus/es')['ElMenuItem']
     ElPageHeader: typeof import('element-plus/es')['ElPageHeader']
-    ElRadioButton: typeof import('element-plus/es')['ElRadioButton']
-    ElRadioGroup: typeof import('element-plus/es')['ElRadioGroup']
     ElRow: typeof import('element-plus/es')['ElRow']
     ElSubMenu: typeof import('element-plus/es')['ElSubMenu']
     ElSwitch: typeof import('element-plus/es')['ElSwitch']
@@ -29,7 +31,6 @@ declare module 'vue' {
     ElTableColumn: typeof import('element-plus/es')['ElTableColumn']
     ElTag: typeof import('element-plus/es')['ElTag']
     ElText: typeof import('element-plus/es')['ElText']
-    ElTooltip: typeof import('element-plus/es')['ElTooltip']
     LongSpan: typeof import('./src/components/LongSpan.vue')['default']
     ProxiesHTTP: typeof import('./src/components/ProxiesHTTP.vue')['default']
     ProxiesHTTPS: typeof import('./src/components/ProxiesHTTPS.vue')['default']
@@ -38,11 +39,13 @@ declare module 'vue' {
     ProxiesTCP: typeof import('./src/components/ProxiesTCP.vue')['default']
     ProxiesTCPMux: typeof import('./src/components/ProxiesTCPMux.vue')['default']
     ProxiesUDP: typeof import('./src/components/ProxiesUDP.vue')['default']
+    ProxyCard: typeof import('./src/components/ProxyCard.vue')['default']
     ProxyView: typeof import('./src/components/ProxyView.vue')['default']
     ProxyViewExpand: typeof import('./src/components/ProxyViewExpand.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     ServerOverview: typeof import('./src/components/ServerOverview.vue')['default']
+    StatCard: typeof import('./src/components/StatCard.vue')['default']
     Traffic: typeof import('./src/components/Traffic.vue')['default']
   }
 }

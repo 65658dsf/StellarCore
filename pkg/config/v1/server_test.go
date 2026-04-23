@@ -29,4 +29,23 @@ func TestServerConfigComplete(t *testing.T) {
 	require.EqualValues("token", c.Auth.Method)
 	require.Equal(true, lo.FromPtr(c.Transport.TCPMux))
 	require.Equal(true, lo.FromPtr(c.DetailedErrorsToClient))
+	require.Equal(TrafficDecisionModePrecision, c.TrafficMonitor.DecisionMode)
+	require.Equal(80, c.TrafficMonitor.InspectTimeoutMS)
+	require.Equal(512, c.TrafficMonitor.InspectMaxBytes)
+}
+
+func TestTrafficMonitorCompleteNormalizesProtocols(t *testing.T) {
+	require := require.New(t)
+
+	c := &ServerConfig{
+		TrafficMonitor: TrafficMonitorConfig{
+			DecisionMode: TrafficDecisionModeBalanced,
+			VPNProtocols: []string{"hy2", "openvpn-tcp", "ipsec", "openvpn"},
+		},
+	}
+	c.Complete()
+
+	require.Equal(120, c.TrafficMonitor.InspectTimeoutMS)
+	require.Equal(1024, c.TrafficMonitor.InspectMaxBytes)
+	require.Equal([]string{"hysteria2", "openvpn", "ikev2"}, c.TrafficMonitor.VPNProtocols)
 }

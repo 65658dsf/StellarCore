@@ -15,9 +15,12 @@
 package v1
 
 import (
+	"strings"
+
 	"github.com/samber/lo"
 
 	"github.com/65658dsf/StellarCore/pkg/config/types"
+	"github.com/65658dsf/StellarCore/pkg/util/protoinspect"
 	"github.com/65658dsf/StellarCore/pkg/util/util"
 )
 
@@ -124,9 +127,9 @@ func (c *ServerConfig) Complete() {
 	c.NatHoleAnalysisDataReserveHours = util.EmptyOr(c.NatHoleAnalysisDataReserveHours, 7*24)
 	c.TrafficMonitor.Enable = util.EmptyOr(c.TrafficMonitor.Enable, true)
 	c.TrafficMonitor.RespondNotFound = util.EmptyOr(c.TrafficMonitor.RespondNotFound, false)
-	c.TrafficMonitor.InspectTimeoutMS = util.EmptyOr(c.TrafficMonitor.InspectTimeoutMS, 80)
 	c.TrafficMonitor.RespondForbidden = util.EmptyOr(c.TrafficMonitor.RespondForbidden, true)
 	c.TrafficMonitor.BlockVPN = util.EmptyOr(c.TrafficMonitor.BlockVPN, lo.ToPtr(true))
+	c.TrafficMonitor.Complete()
 }
 
 type AuthServerConfig struct {
@@ -205,12 +208,20 @@ type TLSServerConfig struct {
 	TLSConfig
 }
 
+const (
+	TrafficDecisionModePrecision  = "precision"
+	TrafficDecisionModeBalanced   = "balanced"
+	TrafficDecisionModeAggressive = "aggressive"
+)
+
 type TrafficMonitorConfig struct {
 	Enable           bool     `json:"enable,omitempty"`
 	WhitelistProxies []string `json:"whitelistProxies,omitempty"`
 	WhitelistRunIDs  []string `json:"whitelistRunIDs,omitempty"`
 	RespondNotFound  bool     `json:"respondNotFound,omitempty"`
 	InspectTimeoutMS int      `json:"inspectTimeoutMS,omitempty"`
+	InspectMaxBytes  int      `json:"inspectMaxBytes,omitempty"`
+	DecisionMode     string   `json:"decisionMode,omitempty"`
 	RespondForbidden bool     `json:"respondForbidden,omitempty"`
 	BlockVPN         *bool    `json:"blockVPN,omitempty"`
 	VPNProtocols     []string `json:"vpnProtocols,omitempty"`
@@ -225,4 +236,50 @@ type SSHTunnelGateway struct {
 
 func (c *SSHTunnelGateway) Complete() {
 	c.AutoGenPrivateKeyPath = util.EmptyOr(c.AutoGenPrivateKeyPath, "./.autogen_ssh_key")
+}
+
+func (c *TrafficMonitorConfig) Complete() {
+	c.DecisionMode = util.EmptyOr(c.DecisionMode, TrafficDecisionModePrecision)
+	switch c.DecisionMode {
+	case TrafficDecisionModeBalanced, TrafficDecisionModeAggressive:
+		c.InspectTimeoutMS = util.EmptyOr(c.InspectTimeoutMS, 120)
+		c.InspectMaxBytes = util.EmptyOr(c.InspectMaxBytes, 1024)
+	default:
+		c.InspectTimeoutMS = util.EmptyOr(c.InspectTimeoutMS, 80)
+		c.InspectMaxBytes = util.EmptyOr(c.InspectMaxBytes, 512)
+	}
+	c.VPNProtocols = normalizeVPNProtocols(c.VPNProtocols)
+}
+
+func normalizeVPNProtocols(protocols []string) []string {
+	if len(protocols) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(protocols))
+	seen := map[string]struct{}{}
+	for _, protocol := range protocols {
+		value := protoinspect.CanonicalProtocol(protocol)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
+func NormalizeVPNProtocol(protocol string) string {
+	return protoinspect.CanonicalProtocol(protocol)
+}
+
+func IsTrafficDecisionModeValid(mode string) bool {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", TrafficDecisionModePrecision, TrafficDecisionModeBalanced, TrafficDecisionModeAggressive:
+		return true
+	default:
+		return false
+	}
 }

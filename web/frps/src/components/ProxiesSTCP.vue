@@ -1,27 +1,29 @@
 <template>
-  <ProxyView :proxies="proxies" proxyType="stcp" @refresh="fetchData"/>
+  <ProxyView :proxies="proxies" proxyType="stcp" @refresh="fetchData" />
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { STCPProxy } from '../utils/proxy.js'
+import { onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import { getProxiesByType } from '../api/proxy'
+import { STCPProxy } from '../utils/proxy'
 import ProxyView from './ProxyView.vue'
 
-let proxies = ref<STCPProxy[]>([])
+const proxies = ref<STCPProxy[]>([])
 
-const fetchData = () => {
-  fetch('../api/proxy/stcp', { credentials: 'include' })
-    .then((res) => {
-      return res.json()
+const fetchData = async () => {
+  try {
+    const json = await getProxiesByType('stcp')
+    proxies.value = json.proxies.map((proxyStats) => new STCPProxy(proxyStats))
+  } catch (error: any) {
+    ElMessage({
+      message: `获取 STCP 代理失败: ${error.message}`,
+      type: 'error',
     })
-    .then((json) => {
-      proxies.value = []
-      for (let proxyStats of json.proxies) {
-        proxies.value.push(new STCPProxy(proxyStats))
-      }
-    })
+  }
 }
-fetchData()
-</script>
 
-<style></style>
+onMounted(() => {
+  fetchData()
+})
+</script>

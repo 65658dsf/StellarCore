@@ -91,3 +91,21 @@ func (m *serverMetrics) AddTrafficOut(name string, proxyType string, trafficByte
 		v.AddTrafficOut(name, proxyType, trafficBytes)
 	}
 }
+
+func (m *serverMetrics) AddDetectionBlock(transport string, protocol string, reason string) {
+	for _, v := range m.ms {
+		v.AddDetectionBlock(transport, protocol, reason)
+	}
+}
+
+func (m *serverMetrics) AddDetectionAllow(transport string, protocol string, reason string) {
+	for _, v := range m.ms {
+		v.AddDetectionAllow(transport, protocol, reason)
+	}
+}
+
+func (m *serverMetrics) AddDetectionSuspicious(transport string, protocol string, reason string) {
+	for _, v := range m.ms {
+		v.AddDetectionSuspicious(transport, protocol, reason)
+	}
+}

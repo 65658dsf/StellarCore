@@ -143,6 +143,18 @@ udpPacketSize = 1500
 # Retention time for NAT hole punching strategy data.
 natholeAnalysisDataReserveHours = 168
 
+# traffic monitor
+# trafficMonitor.enable = true
+# trafficMonitor.respondForbidden = true
+# trafficMonitor.respondNotFound = false
+# trafficMonitor.blockVPN = true
+# trafficMonitor.decisionMode = "precision"
+# trafficMonitor.inspectTimeoutMS = 80
+# trafficMonitor.inspectMaxBytes = 512
+# trafficMonitor.vpnProtocols = ["openvpn", "wireguard", "ikev2", "socks5", "vless", "trojan", "tuic", "hysteria2"]
+# trafficMonitor.whitelistProxies = ["safe-proxy"]
+# trafficMonitor.whitelistRunIDs = ["trusted-run-id"]
+
 # ssh tunnel gateway
 # If you want to enable this feature, the bindPort parameter is required, while others are optional.
 # By default, this feature is disabled. It will be enabled if bindPort is greater than 0.

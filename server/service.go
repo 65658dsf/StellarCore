@@ -25,6 +25,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fatedier/golib/crypto"
@@ -49,11 +50,13 @@ import (
 	"github.com/65658dsf/StellarCore/pkg/util/version"
 	"github.com/65658dsf/StellarCore/pkg/util/vhost"
 	"github.com/65658dsf/StellarCore/pkg/util/xlog"
+	"github.com/65658dsf/StellarCore/server/api"
 	"github.com/65658dsf/StellarCore/server/controller"
 	"github.com/65658dsf/StellarCore/server/group"
 	"github.com/65658dsf/StellarCore/server/metrics"
 	"github.com/65658dsf/StellarCore/server/ports"
 	"github.com/65658dsf/StellarCore/server/proxy"
+	"github.com/65658dsf/StellarCore/server/registry"
 	"github.com/65658dsf/StellarCore/server/visitor"
 )
 
@@ -61,6 +64,13 @@ const (
 	connReadTimeout       time.Duration = 10 * time.Second
 	vhostReadWriteTimeout time.Duration = 30 * time.Second
 )
+
+type RestartExecutor func() error
+
+type ServiceOptions struct {
+	ConfigFilePath  string
+	RestartExecutor RestartExecutor
+}
 
 func init() {
 	crypto.DefaultSalt = "frp"
@@ -101,6 +111,9 @@ type Service struct {
 	// Manage all proxies
 	pxyManager *proxy.Manager
 
+	clientRegistry *registry.ClientRegistry
+	apiController  *api.Controller
+
 	// Manage all plugins
 	pluginManager *plugin.Manager
 
@@ -122,6 +135,10 @@ type Service struct {
 
 	cfg *v1.ServerConfig
 
+	configFilePath  string
+	restartExecutor RestartExecutor
+	restartPending  atomic.Bool
+
 	// 黑名单，存储被踢出客户端的runID和封禁截止时间
 	blacklist     map[string]time.Time
 	blacklistLock sync.RWMutex
@@ -132,7 +149,7 @@ type Service struct {
 	cancel context.CancelFunc
 }
 
-func NewService(cfg *v1.ServerConfig) (*Service, error) {
+func NewService(cfg *v1.ServerConfig, options ServiceOptions) (*Service, error) {
 	tlsConfig, err := transport.NewServerTLSConfig(
 		cfg.Transport.TLS.CertFile,
 		cfg.Transport.TLS.KeyFile,
@@ -155,10 +172,17 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 		}
 	}
 
+	restartExecutor := options.RestartExecutor
+	if restartExecutor == nil {
+		restartExecutor = platformRestartExecutor()
+	}
+
+	clientRegistry := registry.NewClientRegistry()
 	svr := &Service{
-		ctlManager:    NewControlManager(),
-		pxyManager:    proxy.NewManager(),
-		pluginManager: plugin.NewManager(),
+		ctlManager:     NewControlManager(),
+		pxyManager:     proxy.NewManager(),
+		clientRegistry: clientRegistry,
+		pluginManager:  plugin.NewManager(),
 		rc: &controller.ResourceController{
 			VisitorManager: visitor.NewManager(),
 			TCPPortManager: ports.NewManager("tcp", cfg.ProxyBindAddr, cfg.AllowPorts),
@@ -170,9 +194,19 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 		webServer:         webServer,
 		tlsConfig:         tlsConfig,
 		cfg:               cfg,
+		configFilePath:    options.ConfigFilePath,
+		restartExecutor:   restartExecutor,
 		ctx:               context.Background(),
 		blacklist:         make(map[string]time.Time),
 	}
+	svr.apiController = api.NewController(api.ControllerParams{
+		ServerCfg:      cfg,
+		ClientRegistry: clientRegistry,
+		ProxyManager:   svr.pxyManager,
+		KickClient:     svr.kickClientByRunID,
+		ReadConfig:     svr.readConfig,
+		RestartService: svr.scheduleRestart,
+	})
 	if webServer != nil {
 		webServer.RouteRegister(svr.registerRouteHandlers)
 	}
@@ -641,11 +675,14 @@ func (svr *Service) RegisterControl(ctlConn net.Conn, loginMsg *msg.Login, inter
 
 	// for statistics
 	metrics.Server.NewClient()
+	svr.clientRegistry.Register(loginMsg.User, "", loginMsg.RunID, loginMsg.Hostname, ctlConn.RemoteAddr().String())
 
 	go func() {
 		// block until control closed
 		ctl.WaitClosed()
-		svr.ctlManager.Del(loginMsg.RunID, ctl)
+		if svr.ctlManager.Del(loginMsg.RunID, ctl) {
+			svr.clientRegistry.MarkOfflineByRunID(loginMsg.RunID)
+		}
 	}()
 	return nil
 }
@@ -750,4 +787,44 @@ func (svr *Service) cleanBlacklist() {
 			svr.blacklistLock.Unlock()
 		}
 	}
+}
+
+func (svr *Service) kickClientByRunID(runID string) (bool, error) {
+	ctl, ok := svr.ctlManager.GetByID(runID)
+	if !ok {
+		return false, nil
+	}
+
+	svr.AddToBlacklist(runID, 30*time.Minute)
+	return true, ctl.Close()
+}
+
+func (svr *Service) readConfig() ([]byte, error) {
+	if svr.configFilePath == "" {
+		return nil, httppkg.NewError(http.StatusBadRequest, "frps has no config file path")
+	}
+
+	content, err := os.ReadFile(svr.configFilePath)
+	if err != nil {
+		return nil, httppkg.NewError(http.StatusInternalServerError, fmt.Sprintf("load frps config file error: %v", err))
+	}
+	return content, nil
+}
+
+func (svr *Service) scheduleRestart() error {
+	if svr.restartExecutor == nil {
+		return httppkg.NewError(http.StatusNotImplemented, "restart is not supported on this platform")
+	}
+	if !svr.restartPending.CompareAndSwap(false, true) {
+		return httppkg.NewError(http.StatusConflict, "restart already in progress")
+	}
+
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		if err := svr.restartExecutor(); err != nil {
+			log.Warnf("restart frps service error: %v", err)
+			svr.restartPending.Store(false)
+		}
+	}()
+	return nil
 }

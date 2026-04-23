@@ -1,5 +1,6 @@
 export interface ProxyStatsInfo {
   name: string
+  runId?: string
   conf: any
   user: string
   clientID: string

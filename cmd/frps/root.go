@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -101,13 +102,20 @@ func Execute() {
 func runServer(cfg *v1.ServerConfig) (err error) {
 	log.InitLogger(cfg.Log.To, cfg.Log.Level, int(cfg.Log.MaxDays), cfg.Log.DisablePrintColor)
 
+	configFilePath := ""
 	if cfgFile != "" {
+		configFilePath, err = filepath.Abs(cfgFile)
+		if err != nil {
+			return err
+		}
 		log.Infof("服务端使用: %s启动", cfgFile)
 	} else {
 		log.Infof("服务端使用命令行参数启动")
 	}
 
-	svr, err := server.NewService(cfg)
+	svr, err := server.NewService(cfg, server.ServiceOptions{
+		ConfigFilePath: configFilePath,
+	})
 	if err != nil {
 		return err
 	}

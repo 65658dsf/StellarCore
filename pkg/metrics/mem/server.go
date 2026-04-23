@@ -183,6 +183,12 @@ func (m *serverMetrics) AddTrafficOut(name string, _ string, trafficBytes int64)
 	}
 }
 
+func (m *serverMetrics) AddDetectionBlock(string, string, string) {}
+
+func (m *serverMetrics) AddDetectionAllow(string, string, string) {}
+
+func (m *serverMetrics) AddDetectionSuspicious(string, string, string) {}
+
 // Get stats data api.
 
 func (m *serverMetrics) GetServer() *ServerStats {

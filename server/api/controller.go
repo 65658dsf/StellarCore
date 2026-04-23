@@ -33,33 +33,50 @@ import (
 	"github.com/65658dsf/StellarCore/server/registry"
 )
 
+type KickClientFunc func(runID string) (found bool, err error)
+type ConfigReader func() ([]byte, error)
+type RestartServiceFunc func() error
+
 type Controller struct {
-	// dependencies
 	serverCfg      *v1.ServerConfig
 	clientRegistry *registry.ClientRegistry
 	pxyManager     ProxyManager
+	kickClient     KickClientFunc
+	readConfig     ConfigReader
+	restartService RestartServiceFunc
+}
+
+type ControllerParams struct {
+	ServerCfg      *v1.ServerConfig
+	ClientRegistry *registry.ClientRegistry
+	ProxyManager   ProxyManager
+	KickClient     KickClientFunc
+	ReadConfig     ConfigReader
+	RestartService RestartServiceFunc
 }
 
 type ProxyManager interface {
 	GetByName(name string) (proxy.Proxy, bool)
 }
 
-func NewController(
-	serverCfg *v1.ServerConfig,
-	clientRegistry *registry.ClientRegistry,
-	pxyManager ProxyManager,
-) *Controller {
+func NewController(params ControllerParams) *Controller {
 	return &Controller{
-		serverCfg:      serverCfg,
-		clientRegistry: clientRegistry,
-		pxyManager:     pxyManager,
+		serverCfg:      params.ServerCfg,
+		clientRegistry: params.ClientRegistry,
+		pxyManager:     params.ProxyManager,
+		kickClient:     params.KickClient,
+		readConfig:     params.ReadConfig,
+		restartService: params.RestartService,
 	}
 }
 
-// /api/serverinfo
-func (c *Controller) APIServerInfo(ctx *httppkg.Context) (any, error) {
+func (c *Controller) Healthz(_ *httppkg.Context) (any, error) {
+	return nil, nil
+}
+
+func (c *Controller) APIServerInfo(_ *httppkg.Context) (any, error) {
 	serverStats := mem.StatsCollector.GetServer()
-	svrResp := ServerInfoResp{
+	return ServerInfoResp{
 		Version:               version.Full(),
 		BindPort:              c.serverCfg.BindPort,
 		VhostHTTPPort:         c.serverCfg.VhostHTTPPort,
@@ -73,34 +90,14 @@ func (c *Controller) APIServerInfo(ctx *httppkg.Context) (any, error) {
 		HeartBeatTimeout:      c.serverCfg.Transport.HeartbeatTimeout,
 		AllowPortsStr:         types.PortsRangeSlice(c.serverCfg.AllowPorts).String(),
 		TLSForce:              c.serverCfg.Transport.TLS.Force,
-
-		TotalTrafficIn:  serverStats.TotalTrafficIn,
-		TotalTrafficOut: serverStats.TotalTrafficOut,
-		CurConns:        serverStats.CurConns,
-		ClientCounts:    serverStats.ClientCounts,
-		ProxyTypeCounts: serverStats.ProxyTypeCounts,
-	}
-	// For API that returns struct, we can just return it.
-	// But current GeneralResponse.Msg in legacy code expects a JSON string.
-	// Since MakeHTTPHandlerFunc handles struct by encoding to JSON, we can return svrResp directly?
-	// The original code wraps it in GeneralResponse{Msg: string(json)}.
-	// If we return svrResp, the response body will be the JSON of svrResp.
-	// We should check if the frontend expects { "code": 200, "msg": "{...}" } or just {...}.
-	// Looking at previous code:
-	// res := GeneralResponse{Code: 200}
-	// buf, _ := json.Marshal(&svrResp)
-	// res.Msg = string(buf)
-	// Response body: {"code": 200, "msg": "{\"version\":...}"}
-	// Wait, is it double encoded JSON? Yes it seems so!
-	// Let's check dashboard_api.go original code again.
-	// Yes: res.Msg = string(buf).
-	// So the frontend expects { "code": 200, "msg": "JSON_STRING" }.
-	// This is kind of ugly, but we must preserve compatibility.
-
-	return svrResp, nil
+		TotalTrafficIn:        serverStats.TotalTrafficIn,
+		TotalTrafficOut:       serverStats.TotalTrafficOut,
+		CurConns:              serverStats.CurConns,
+		ClientCounts:          serverStats.ClientCounts,
+		ProxyTypeCounts:       serverStats.ProxyTypeCounts,
+	}, nil
 }
 
-// /api/clients
 func (c *Controller) APIClientList(ctx *httppkg.Context) (any, error) {
 	if c.clientRegistry == nil {
 		return nil, fmt.Errorf("client registry unavailable")
@@ -142,13 +139,11 @@ func (c *Controller) APIClientList(ctx *httppkg.Context) (any, error) {
 	return items, nil
 }
 
-// /api/clients/{key}
 func (c *Controller) APIClientDetail(ctx *httppkg.Context) (any, error) {
 	key := ctx.Param("key")
 	if key == "" {
 		return nil, fmt.Errorf("missing client key")
 	}
-
 	if c.clientRegistry == nil {
 		return nil, fmt.Errorf("client registry unavailable")
 	}
@@ -157,57 +152,33 @@ func (c *Controller) APIClientDetail(ctx *httppkg.Context) (any, error) {
 	if !ok {
 		return nil, httppkg.NewError(http.StatusNotFound, fmt.Sprintf("client %s not found", key))
 	}
-
 	return buildClientInfoResp(info), nil
 }
 
-// /api/proxy/:type
 func (c *Controller) APIProxyByType(ctx *httppkg.Context) (any, error) {
 	proxyType := ctx.Param("type")
-
-	proxyInfoResp := GetProxyInfoResp{}
-	proxyInfoResp.Proxies = c.getProxyStatsByType(proxyType)
-	slices.SortFunc(proxyInfoResp.Proxies, func(a, b *ProxyStatsInfo) int {
+	resp := GetProxyInfoResp{
+		Proxies: c.getProxyStatsByType(proxyType),
+	}
+	slices.SortFunc(resp.Proxies, func(a, b *ProxyStatsInfo) int {
 		return cmp.Compare(a.Name, b.Name)
 	})
-
-	return proxyInfoResp, nil
+	return resp, nil
 }
 
-// /api/proxy/:type/:name
 func (c *Controller) APIProxyByTypeAndName(ctx *httppkg.Context) (any, error) {
 	proxyType := ctx.Param("type")
 	name := ctx.Param("name")
 
 	proxyStatsResp, code, msg := c.getProxyStatsByTypeAndName(proxyType, name)
-	if code != 200 {
+	if code != http.StatusOK {
 		return nil, httppkg.NewError(code, msg)
 	}
-
 	return proxyStatsResp, nil
 }
 
-// /api/traffic/:name
-func (c *Controller) APIProxyTraffic(ctx *httppkg.Context) (any, error) {
-	name := ctx.Param("name")
-
-	trafficResp := GetProxyTrafficResp{}
-	trafficResp.Name = name
-	proxyTrafficInfo := mem.StatsCollector.GetProxyTraffic(name)
-
-	if proxyTrafficInfo == nil {
-		return nil, httppkg.NewError(http.StatusNotFound, "no proxy info found")
-	}
-	trafficResp.TrafficIn = proxyTrafficInfo.TrafficIn
-	trafficResp.TrafficOut = proxyTrafficInfo.TrafficOut
-
-	return trafficResp, nil
-}
-
-// /api/proxies/:name
 func (c *Controller) APIProxyByName(ctx *httppkg.Context) (any, error) {
 	name := ctx.Param("name")
-
 	ps := mem.StatsCollector.GetProxyByName(name)
 	if ps == nil {
 		return nil, httppkg.NewError(http.StatusNotFound, "no proxy info found")
@@ -238,6 +209,7 @@ func (c *Controller) APIProxyByName(ctx *httppkg.Context) (any, error) {
 			user:          &proxyInfo.User,
 			clientID:      &proxyInfo.ClientID,
 			clientVersion: &proxyInfo.ClientVersion,
+			runID:         &proxyInfo.RunID,
 		}, pxy)
 	} else {
 		proxyInfo.Status = "offline"
@@ -246,7 +218,6 @@ func (c *Controller) APIProxyByName(ctx *httppkg.Context) (any, error) {
 	return proxyInfo, nil
 }
 
-// DELETE /api/proxies?status=offline
 func (c *Controller) DeleteProxies(ctx *httppkg.Context) (any, error) {
 	status := ctx.Query("status")
 	if status != "offline" {
@@ -254,6 +225,155 @@ func (c *Controller) DeleteProxies(ctx *httppkg.Context) (any, error) {
 	}
 	cleared, total := mem.StatsCollector.ClearOfflineProxies()
 	log.Infof("cleared [%d] offline proxies, total [%d] proxies", cleared, total)
+	return nil, nil
+}
+
+func (c *Controller) APIProxyTraffic(ctx *httppkg.Context) (any, error) {
+	name := ctx.Param("name")
+	trafficResp := GetProxyTrafficResp{Name: name}
+	proxyTrafficInfo := mem.StatsCollector.GetProxyTraffic(name)
+	if proxyTrafficInfo == nil {
+		return nil, httppkg.NewError(http.StatusNotFound, "no proxy info found")
+	}
+	trafficResp.TrafficIn = proxyTrafficInfo.TrafficIn
+	trafficResp.TrafficOut = proxyTrafficInfo.TrafficOut
+	return trafficResp, nil
+}
+
+func (c *Controller) APIAllProxiesTraffic(_ *httppkg.Context) (any, error) {
+	trafficResp := GetProxyTrafficResp{
+		Name:       "all",
+		TrafficIn:  make([]int64, 30),
+		TrafficOut: make([]int64, 30),
+	}
+
+	for _, proxyName := range c.listAllProxyNames() {
+		metrics := mem.StatsCollector.GetProxyTraffic(proxyName)
+		if metrics == nil {
+			continue
+		}
+		for i := 0; i < len(metrics.TrafficIn) && i < len(trafficResp.TrafficIn); i++ {
+			trafficResp.TrafficIn[i] += metrics.TrafficIn[i]
+		}
+		for i := 0; i < len(metrics.TrafficOut) && i < len(trafficResp.TrafficOut); i++ {
+			trafficResp.TrafficOut[i] += metrics.TrafficOut[i]
+		}
+	}
+	return trafficResp, nil
+}
+
+func (c *Controller) APITrafficTrend(ctx *httppkg.Context) (any, error) {
+	timeRange := ctx.Query("range")
+	if timeRange == "" {
+		timeRange = "day"
+	}
+
+	var (
+		pointsCount int
+		interval    time.Duration
+	)
+	switch timeRange {
+	case "day":
+		pointsCount = 24
+		interval = time.Hour
+	case "3days":
+		pointsCount = 72
+		interval = time.Hour
+	case "week":
+		pointsCount = 7
+		interval = 24 * time.Hour
+	case "14days":
+		pointsCount = 14
+		interval = 24 * time.Hour
+	case "month":
+		pointsCount = 30
+		interval = 24 * time.Hour
+	default:
+		pointsCount = 24
+		interval = time.Hour
+	}
+
+	now := time.Now()
+	trendResp := TrafficTrendResp{
+		Timestamps: make([]string, pointsCount),
+		InData:     make([]int64, pointsCount),
+		OutData:    make([]int64, pointsCount),
+	}
+
+	for i := 0; i < pointsCount; i++ {
+		timePoint := now.Add(-time.Duration(pointsCount-1-i) * interval)
+		if interval >= 24*time.Hour {
+			trendResp.Timestamps[i] = timePoint.Format("01-02")
+		} else {
+			trendResp.Timestamps[i] = timePoint.Format("01-02 15:04")
+		}
+
+		for _, proxyName := range c.listAllProxyNames() {
+			metrics := mem.StatsCollector.GetProxyTraffic(proxyName)
+			if metrics == nil || i >= len(metrics.TrafficIn) || i >= len(metrics.TrafficOut) {
+				continue
+			}
+			trendResp.InData[i] += metrics.TrafficIn[i]
+			trendResp.OutData[i] += metrics.TrafficOut[i]
+		}
+	}
+	return trendResp, nil
+}
+
+func (c *Controller) KickClient(ctx *httppkg.Context) (any, error) {
+	resp := CloseUserResp{}
+	if c.kickClient == nil {
+		resp.Status = http.StatusNotImplemented
+		resp.Msg = "kick client is unavailable"
+		return resp, nil
+	}
+
+	var bodyMap struct {
+		RunID string `json:"runId"`
+	}
+	if err := ctx.BindJSON(&bodyMap); err != nil || bodyMap.RunID == "" {
+		resp.Status = http.StatusBadRequest
+		resp.Msg = "request error"
+		return resp, nil
+	}
+
+	found, err := c.kickClient(bodyMap.RunID)
+	if err != nil {
+		resp.Status = http.StatusInternalServerError
+		resp.Msg = err.Error()
+		return resp, nil
+	}
+	if !found {
+		resp.Status = http.StatusNotFound
+		resp.Msg = "client not running"
+		return resp, nil
+	}
+
+	resp.Status = http.StatusOK
+	resp.Msg = "success"
+	return resp, nil
+}
+
+func (c *Controller) GetConfig(ctx *httppkg.Context) (any, error) {
+	if c.readConfig == nil {
+		return nil, httppkg.NewError(http.StatusBadRequest, "frps has no config file path")
+	}
+
+	content, err := c.readConfig()
+	if err != nil {
+		return nil, err
+	}
+	ctx.Resp.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	return string(content), nil
+}
+
+func (c *Controller) RestartService(_ *httppkg.Context) (any, error) {
+	if c.restartService == nil {
+		return nil, httppkg.NewError(http.StatusNotImplemented, "restart is not supported on this platform")
+	}
+	if err := c.restartService(); err != nil {
+		return nil, err
+	}
 	return nil, nil
 }
 
@@ -278,6 +398,7 @@ func (c *Controller) getProxyStatsByType(proxyType string) (proxyInfos []*ProxyS
 				user:          &proxyInfo.User,
 				clientID:      &proxyInfo.ClientID,
 				clientVersion: &proxyInfo.ClientVersion,
+				runID:         &proxyInfo.RunID,
 			}, pxy)
 		} else {
 			proxyInfo.Status = "offline"
@@ -297,42 +418,37 @@ func (c *Controller) getProxyStatsByTypeAndName(proxyType string, proxyName stri
 	proxyInfo.Name = proxyName
 	ps := mem.StatsCollector.GetProxiesByTypeAndName(proxyType, proxyName)
 	if ps == nil {
-		code = 404
-		msg = "no proxy info found"
-	} else {
-		if pxy, ok := c.pxyManager.GetByName(proxyName); ok {
-			content, err := json.Marshal(pxy.GetConfigurer())
-			if err != nil {
-				log.Warnf("marshal proxy [%s] conf info error: %v", ps.Name, err)
-				code = 400
-				msg = "parse conf error"
-				return
-			}
-			proxyInfo.Conf = getConfByType(ps.Type)
-			if err = json.Unmarshal(content, &proxyInfo.Conf); err != nil {
-				log.Warnf("unmarshal proxy [%s] conf info error: %v", ps.Name, err)
-				code = 400
-				msg = "parse conf error"
-				return
-			}
-			proxyInfo.Status = "online"
-			c.fillProxyClientInfo(&proxyClientInfo{
-				user:          &proxyInfo.User,
-				clientID:      &proxyInfo.ClientID,
-				clientVersion: &proxyInfo.ClientVersion,
-			}, pxy)
-		} else {
-			proxyInfo.Status = "offline"
-		}
-		proxyInfo.TodayTrafficIn = ps.TodayTrafficIn
-		proxyInfo.TodayTrafficOut = ps.TodayTrafficOut
-		proxyInfo.CurConns = ps.CurConns
-		proxyInfo.LastStartTime = ps.LastStartTime
-		proxyInfo.LastCloseTime = ps.LastCloseTime
-		code = 200
+		return proxyInfo, http.StatusNotFound, "no proxy info found"
 	}
 
-	return
+	if pxy, ok := c.pxyManager.GetByName(proxyName); ok {
+		content, err := json.Marshal(pxy.GetConfigurer())
+		if err != nil {
+			log.Warnf("marshal proxy [%s] conf info error: %v", ps.Name, err)
+			return proxyInfo, http.StatusBadRequest, "parse conf error"
+		}
+		proxyInfo.Conf = getConfByType(ps.Type)
+		if err = json.Unmarshal(content, &proxyInfo.Conf); err != nil {
+			log.Warnf("unmarshal proxy [%s] conf info error: %v", ps.Name, err)
+			return proxyInfo, http.StatusBadRequest, "parse conf error"
+		}
+		proxyInfo.Status = "online"
+		c.fillProxyClientInfo(&proxyClientInfo{
+			user:          &proxyInfo.User,
+			clientID:      &proxyInfo.ClientID,
+			clientVersion: &proxyInfo.ClientVersion,
+			runID:         &proxyInfo.RunID,
+		}, pxy)
+	} else {
+		proxyInfo.Status = "offline"
+	}
+
+	proxyInfo.TodayTrafficIn = ps.TodayTrafficIn
+	proxyInfo.TodayTrafficOut = ps.TodayTrafficOut
+	proxyInfo.CurConns = ps.CurConns
+	proxyInfo.LastStartTime = ps.LastStartTime
+	proxyInfo.LastCloseTime = ps.LastCloseTime
+	return proxyInfo, http.StatusOK, ""
 }
 
 func buildClientInfoResp(info registry.ClientInfo) ClientInfoResp {
@@ -357,6 +473,7 @@ type proxyClientInfo struct {
 	user          *string
 	clientID      *string
 	clientVersion *string
+	runID         *string
 }
 
 func (c *Controller) fillProxyClientInfo(proxyInfo *proxyClientInfo, pxy proxy.Proxy) {
@@ -370,15 +487,32 @@ func (c *Controller) fillProxyClientInfo(proxyInfo *proxyClientInfo, pxy proxy.P
 	if proxyInfo.clientVersion != nil {
 		*proxyInfo.clientVersion = loginMsg.Version
 	}
-	if info, ok := c.clientRegistry.GetByRunID(loginMsg.RunID); ok {
-		if proxyInfo.clientID != nil {
-			*proxyInfo.clientID = info.ClientID()
+	if proxyInfo.runID != nil {
+		*proxyInfo.runID = loginMsg.RunID
+	}
+	if c.clientRegistry != nil {
+		if info, ok := c.clientRegistry.GetByRunID(loginMsg.RunID); ok {
+			if proxyInfo.clientID != nil {
+				*proxyInfo.clientID = info.ClientID()
+			}
+			return
 		}
-		return
 	}
 	if proxyInfo.clientID != nil {
 		*proxyInfo.clientID = loginMsg.RunID
 	}
+}
+
+func (c *Controller) listAllProxyNames() []string {
+	proxyTypes := []string{"tcp", "udp", "http", "https", "stcp", "sudp", "xtcp", "tcpmux"}
+	allProxies := make([]string, 0)
+	for _, proxyType := range proxyTypes {
+		proxiesOfType := mem.StatsCollector.GetProxiesByType(proxyType)
+		for _, proxyInfo := range proxiesOfType {
+			allProxies = append(allProxies, proxyInfo.Name)
+		}
+	}
+	return allProxies
 }
 
 func toUnix(t time.Time) int64 {
@@ -415,6 +549,8 @@ func getConfByType(proxyType string) any {
 		return &HTTPSOutConf{}
 	case v1.ProxyTypeSTCP:
 		return &STCPOutConf{}
+	case v1.ProxyTypeSUDP:
+		return &SUDPOutConf{}
 	case v1.ProxyTypeXTCP:
 		return &XTCPOutConf{}
 	default:

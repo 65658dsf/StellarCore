@@ -1,5 +1,6 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import ServerOverview from '../components/ServerOverview.vue'
+import ConfigBrowser from '../components/ConfigBrowser.vue'
 import ProxiesTCP from '../components/ProxiesTCP.vue'
 import ProxiesUDP from '../components/ProxiesUDP.vue'
 import ProxiesHTTP from '../components/ProxiesHTTP.vue'
@@ -15,6 +16,11 @@ const router = createRouter({
       path: '/',
       name: 'ServerOverview',
       component: ServerOverview,
+    },
+    {
+      path: '/config',
+      name: 'ConfigBrowser',
+      component: ConfigBrowser,
     },
     {
       path: '/proxies/tcp',

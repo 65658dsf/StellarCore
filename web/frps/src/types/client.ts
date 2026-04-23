@@ -11,3 +11,8 @@ export interface ClientInfoData {
   disconnectedAt?: number
   online: boolean
 }
+
+export interface KickClientResponse {
+  status: number
+  message: string
+}

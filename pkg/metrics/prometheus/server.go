@@ -19,6 +19,9 @@ type serverMetrics struct {
 	connectionCount *prometheus.GaugeVec
 	trafficIn       *prometheus.CounterVec
 	trafficOut      *prometheus.CounterVec
+	detectBlock     *prometheus.CounterVec
+	detectAllow     *prometheus.CounterVec
+	detectSusp      *prometheus.CounterVec
 }
 
 func (m *serverMetrics) NewClient() {
@@ -53,6 +56,18 @@ func (m *serverMetrics) AddTrafficOut(name string, proxyType string, trafficByte
 	m.trafficOut.WithLabelValues(name, proxyType).Add(float64(trafficBytes))
 }
 
+func (m *serverMetrics) AddDetectionBlock(transport string, protocol string, reason string) {
+	m.detectBlock.WithLabelValues(transport, protocol, reason).Inc()
+}
+
+func (m *serverMetrics) AddDetectionAllow(transport string, protocol string, reason string) {
+	m.detectAllow.WithLabelValues(transport, protocol, reason).Inc()
+}
+
+func (m *serverMetrics) AddDetectionSuspicious(transport string, protocol string, reason string) {
+	m.detectSusp.WithLabelValues(transport, protocol, reason).Inc()
+}
+
 func newServerMetrics() *serverMetrics {
 	m := &serverMetrics{
 		clientCount: prometheus.NewGauge(prometheus.GaugeOpts{
@@ -85,11 +100,32 @@ func newServerMetrics() *serverMetrics {
 			Name:      "traffic_out",
 			Help:      "The total out traffic",
 		}, []string{"name", "type"}),
+		detectBlock: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: serverSubsystem,
+			Name:      "detect_block_total",
+			Help:      "The total number of blocked traffic detections",
+		}, []string{"transport", "protocol", "reason"}),
+		detectAllow: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: serverSubsystem,
+			Name:      "detect_allow_total",
+			Help:      "The total number of allowed traffic detections",
+		}, []string{"transport", "protocol", "reason"}),
+		detectSusp: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: serverSubsystem,
+			Name:      "detect_suspicious_total",
+			Help:      "The total number of suspicious traffic detections",
+		}, []string{"transport", "protocol", "reason"}),
 	}
 	prometheus.MustRegister(m.clientCount)
 	prometheus.MustRegister(m.proxyCount)
 	prometheus.MustRegister(m.connectionCount)
 	prometheus.MustRegister(m.trafficIn)
 	prometheus.MustRegister(m.trafficOut)
+	prometheus.MustRegister(m.detectBlock)
+	prometheus.MustRegister(m.detectAllow)
+	prometheus.MustRegister(m.detectSusp)
 	return m
 }
