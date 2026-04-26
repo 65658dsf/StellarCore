@@ -1,761 +1,854 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# 检查root权限
-if [ "$EUID" -ne 0 ]; then
-    echo "请使用root权限运行此脚本"
-    exit 1
-fi
+set -u
 
-# 生成随机字符串函数
-generate_random_string() {
-    tr -dc 'a-zA-Z0-9' < /dev/urandom | fold -w ${1:-32} | head -n 1
+readonly BIN_PATH="/usr/local/bin/stellarcore"
+readonly CONFIG_DIR="/etc/stellarcore"
+readonly CONFIG_PATH="${CONFIG_DIR}/frps.toml"
+readonly SERVICE_PATH="/etc/systemd/system/stellarfrps.service"
+readonly SERVICE_UNIT="stellarfrps.service"
+readonly SERVICE_NAME="stellarfrps"
+readonly GITHUB_REPO="65658dsf/StellarCore"
+readonly GITHUB_API_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
+readonly BASE_API_URL="https://resources.stellarfrp.top/api/fs/list"
+readonly BASE_DOWNLOAD_URL="https://resources.stellarfrp.top/d/StellarCore"
+readonly ROOT_PATH="StellarCore"
+
+TMP_ROOT=""
+JQ_AVAILABLE=false
+FRP_ARCH=""
+PREPARED_BINARY=""
+PORT_CHECK_ALLOW_CURRENT_CONFIG=false
+
+log() {
+    echo "$*"
 }
 
-# 判断是否已安装
-check_installed() {
-    if [ -f "/usr/local/bin/stellarcore" ] && [ -f "/etc/systemd/system/stellarfrps.service" ]; then
-        return 0
-    else
-        return 1
+warn() {
+    echo "警告：$*" >&2
+}
+
+error() {
+    echo "错误：$*" >&2
+}
+
+die() {
+    error "$*"
+    exit 1
+}
+
+cleanup() {
+    if [ -n "${TMP_ROOT:-}" ] && [ -d "$TMP_ROOT" ]; then
+        rm -rf "$TMP_ROOT"
     fi
 }
 
-# 卸载函数
-uninstall_stellarfrps() {
-    echo "开始卸载 StellarFrps 服务..."
-    # 停止并禁用服务
-    systemctl stop stellarfrps 2>/dev/null
-    systemctl disable stellarfrps 2>/dev/null
+trap cleanup EXIT INT TERM
 
-    # 删除文件
-    rm -f /usr/local/bin/stellarcore
-    rm -f /etc/systemd/system/stellarfrps.service
-    rm -rf /etc/stellarcore
+if [ "${EUID:-$(id -u)}" -ne 0 ]; then
+    die "请使用root权限运行此脚本"
+fi
 
-    # 重新加载systemd
-    systemctl daemon-reload
+TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/stellarcore.XXXXXX")" || die "无法创建临时目录"
+mkdir -p "${TMP_ROOT}/downloads" "${TMP_ROOT}/extracts" || die "无法初始化临时目录"
 
-    echo "StellarFrps 服务卸载完成"
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
 }
 
-# 下载函数，带重试 (使用 curl 和 wget 双重保障)
+generate_random_string() {
+    local length="${1:-32}"
+    tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c "$length"
+    echo
+}
+
+ensure_jq() {
+    if command_exists jq; then
+        JQ_AVAILABLE=true
+        return 0
+    fi
+
+    warn "未检测到 jq，正在尝试通过系统包管理器安装"
+
+    if command_exists apt-get; then
+        DEBIAN_FRONTEND=noninteractive apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y jq
+    elif command_exists dnf; then
+        dnf install -y jq
+    elif command_exists yum; then
+        yum install -y jq
+    elif command_exists zypper; then
+        zypper --non-interactive install jq
+    elif command_exists apk; then
+        apk add --no-cache jq
+    elif command_exists pacman; then
+        pacman -Sy --noconfirm jq
+    else
+        warn "未找到支持的包管理器，JSON 解析将使用 sed 兼容模式"
+    fi
+
+    if command_exists jq; then
+        JQ_AVAILABLE=true
+        log "jq 安装成功"
+    else
+        JQ_AVAILABLE=false
+        warn "jq 不可用，已降级到 sed 兼容解析；若接口返回复杂 JSON，解析可能不如 jq 稳定"
+    fi
+}
+
+file_size() {
+    local file="$1"
+    stat -c%s "$file" 2>/dev/null || wc -c < "$file" | tr -d ' '
+}
+
 download_with_retry() {
-    local url=$1
-    local output=$2
+    local url="$1"
+    local output="$2"
+    local min_bytes="${3:-1024}"
     local max_retries=3
     local retry_count=0
-    local success=false
+    local size=0
 
-    while [ $retry_count -lt $max_retries ] && [ "$success" = false ]; do
-        echo "下载尝试 $(($retry_count + 1))/$max_retries: $url"
+    while [ "$retry_count" -lt "$max_retries" ]; do
+        retry_count=$((retry_count + 1))
+        rm -f "$output"
+        log "下载尝试 ${retry_count}/${max_retries}: $url"
 
-        # 优先尝试使用 curl
-        if command -v curl &> /dev/null; then
-            echo "使用 curl 下载..."
-            # -f: 失败时返回错误码 (如 404)
-            # -s: 静默模式
-            # -L: 跟随重定向
-            # -o: 指定输出文件
-            # --retry: 重试次数
-            # --retry-delay: 重试间隔秒数
-            if curl -f -s -L --retry 2 --retry-delay 3 "$url" -o "$output"; then
-                if [ -s "$output" ] && [ $(stat -c%s "$output" 2>/dev/null || wc -c < "$output") -gt 1000 ]; then
-                    echo "curl 下载成功，文件大小: $(stat -c%s "$output" 2>/dev/null || wc -c < "$output") 字节"
-                    success=true
-                else
-                    echo "curl 下载的文件异常，文件大小过小: $(stat -c%s "$output" 2>/dev/null || wc -c < "$output") 字节"
-                    rm -f "$output"
+        if command_exists curl; then
+            if curl -f -sS -L --connect-timeout 15 --max-time 300 --retry 2 --retry-delay 3 --retry-connrefused -o "$output" "$url"; then
+                size="$(file_size "$output")"
+                if [ -s "$output" ] && [ "$size" -ge "$min_bytes" ]; then
+                    log "curl 下载成功，文件大小: ${size} 字节"
+                    return 0
                 fi
-            else
-                echo "curl 下载失败"
+                warn "curl 下载的文件异常，文件大小: ${size} 字节"
                 rm -f "$output"
-            fi
-        else
-            echo "curl 未找到，尝试使用 wget..."
-            # 如果 curl 不可用，尝试使用 wget
-            # -q: 静默模式
-            # -O: 指定输出文件
-            # --timeout: 设置超时秒数
-            # --tries: 设置重试次数 (这里设为1，由脚本逻辑控制重试)
-            if wget -q --timeout=30 --tries=1 "$url" -O "$output"; then
-                if [ -s "$output" ] && [ $(stat -c%s "$output" 2>/dev/null || wc -c < "$output") -gt 1000 ]; then
-                    echo "wget 下载成功，文件大小: $(stat -c%s "$output" 2>/dev/null || wc -c < "$output") 字节"
-                    success=true
-                else
-                    echo "wget 下载的文件异常，文件大小过小: $(stat -c%s "$output" 2>/dev/null || wc -c < "$output") 字节"
-                    rm -f "$output"
-                fi
             else
-                echo "wget 下载失败"
+                warn "curl 下载失败"
                 rm -f "$output"
             fi
         fi
 
-        if [ "$success" = false ]; then
-            retry_count=$((retry_count + 1))
-            if [ $retry_count -lt $max_retries ]; then
-                echo "等待 3 秒后重试..."
-                sleep 3
+        if command_exists wget; then
+            if wget -q --timeout=30 --tries=3 --retry-connrefused -O "$output" "$url"; then
+                size="$(file_size "$output")"
+                if [ -s "$output" ] && [ "$size" -ge "$min_bytes" ]; then
+                    log "wget 下载成功，文件大小: ${size} 字节"
+                    return 0
+                fi
+                warn "wget 下载的文件异常，文件大小: ${size} 字节"
+                rm -f "$output"
+            else
+                warn "wget 下载失败"
+                rm -f "$output"
             fi
+        fi
+
+        if ! command_exists curl && ! command_exists wget; then
+            error "未找到 curl 或 wget，无法下载"
+            return 1
+        fi
+
+        if [ "$retry_count" -lt "$max_retries" ]; then
+            log "等待 3 秒后重试..."
+            sleep 3
         fi
     done
 
-    if [ "$success" = true ]; then
-        return 0
-    else
-        echo "达到最大重试次数，下载失败"
-        return 1
-    fi
-}
-
-
-# 尝试解压函数
-try_extract() {
-    local archive=$1
-    echo "正在解压 $archive..."
-
-    # 先尝试gzip格式
-    if tar zxf "$archive" 2>/dev/null; then
-        echo "gzip格式解压成功"
-        return 0
-    fi
-
-    echo "gzip解压失败，尝试其他格式..."
-
-    # 尝试xz格式
-    if tar Jxf "$archive" 2>/dev/null; then
-        echo "xz格式解压成功"
-        return 0
-    fi
-
-    # 尝试bzip2格式
-    if tar jxf "$archive" 2>/dev/null; then
-        echo "bzip2格式解压成功"
-        return 0
-    fi
-
-    # 尝试直接解压（不指定压缩算法）
-    if tar xf "$archive" 2>/dev/null; then
-        echo "通用格式解压成功"
-        return 0
-    fi
-
-    # 如果是zip格式
-    if command -v unzip &> /dev/null && unzip -q "$archive" 2>/dev/null; then
-        echo "zip格式解压成功"
-        return 0
-    fi
-
-    echo "所有解压方式均失败，可能是文件损坏"
+    error "达到最大重试次数，下载失败"
     return 1
 }
 
-# 尝试从GitHub下载 (使用 GitHub API 获取最新 Release)
-download_from_github() {
-    echo "尝试从GitHub备用源下载..."
+fetch_api_list() {
+    local api_path="$1"
+    local output="$2"
 
-    GITHUB_REPO="65658dsf/StellarCore"
-    API_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
-
-    # 获取最新的 Release 信息 (使用 sed 解析 JSON)
-    echo "正在获取 GitHub 最新 Release 信息..."
-    RELEASE_INFO=$(curl -s "$API_URL")
-
-    if [ -z "$RELEASE_INFO" ] || echo "$RELEASE_INFO" | grep -q '"message":"Not Found"'; then
-        echo "无法获取 GitHub Release 信息或仓库不存在"
-        return 1
-    fi
-
-    # 提取 tag_name (版本号)
-    VERSION=$(echo "$RELEASE_INFO" | sed -n 's/.*"tag_name":"\([^"]*\)".*/\1/p' | sed 's/v//') # 去掉可能的 'v' 前缀
-    if [ -z "$VERSION" ]; then
-        echo "无法从 Release 信息中提取版本号"
-        return 1
-    fi
-    echo "检测到 GitHub 最新版本: $VERSION"
-
-    # 根据系统架构确定资产名称
-    ASSET_NAME="StellarCore_${VERSION}_linux_${FRP_ARCH}.tar.gz"
-
-    # 尝试找到匹配的资产下载 URL
-    DOWNLOAD_URL=$(echo "$RELEASE_INFO" | sed -n "s/.*\"browser_download_url\":\"[^\"]*${ASSET_NAME//\./\\.}\".*/\0/p" | sed -n 's/.*"browser_download_url":"\([^"]*\)".*/\1/p')
-
-    if [ -z "$DOWNLOAD_URL" ]; then
-        echo "在 Release $VERSION 中未找到匹配的资产: $ASSET_NAME"
-        # 尝试找第一个 .tar.gz 文件
-        DOWNLOAD_URL=$(echo "$RELEASE_INFO" | sed -n 's/.*"browser_download_url":"\([^"]*\.tar\.gz\)".*/\1/p' | head -1)
-        if [ -n "$DOWNLOAD_URL" ]; then
-             echo "找到替代的 .tar.gz 资产: $DOWNLOAD_URL"
-        else
-            echo "在 Release $VERSION 中未找到任何 .tar.gz 资产"
-            return 1
-        fi
-    fi
-
-    echo "尝试从GitHub下载: $DOWNLOAD_URL"
-
-    # 下载文件
-    if download_with_retry "$DOWNLOAD_URL" "stellarcore.tar.gz"; then
-        if try_extract "stellarcore.tar.gz"; then
-            echo "从GitHub成功下载并解压"
-            rm -f stellarcore.tar.gz # 清理
+    rm -f "$output"
+    if command_exists curl; then
+        if curl -f -sS -L --connect-timeout 15 --max-time 60 --retry 2 --retry-delay 2 -G --data-urlencode "path=${api_path}" -o "$output" "$BASE_API_URL" && [ -s "$output" ]; then
             return 0
-        else
-            echo "从GitHub下载的文件解压失败"
-            rm -f stellarcore.tar.gz
-            return 1
         fi
+        rm -f "$output"
     fi
 
-    echo "从GitHub下载失败"
+    download_with_retry "${BASE_API_URL}?path=${api_path}" "$output" 1
+}
+
+split_json_objects() {
+    local file="$1"
+
+    tr '\n' ' ' < "$file" | sed -E 's/}[[:space:]]*,[[:space:]]*{/}\
+{/g'
+}
+
+json_dir_names() {
+    local file="$1"
+
+    if [ "$JQ_AVAILABLE" = true ]; then
+        jq -r '.data.content[]? | select(.is_dir == true) | .name // empty' "$file" 2>/dev/null
+    else
+        split_json_objects "$file" | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*"is_dir"[[:space:]]*:[[:space:]]*true.*/\1/p'
+    fi
+}
+
+json_file_names() {
+    local file="$1"
+
+    if [ "$JQ_AVAILABLE" = true ]; then
+        jq -r '.data.content[]? | select(.is_dir != true) | .name // empty' "$file" 2>/dev/null
+    else
+        split_json_objects "$file" | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+    fi
+}
+
+release_tag_name() {
+    local file="$1"
+
+    if [ "$JQ_AVAILABLE" = true ]; then
+        jq -r '.tag_name // empty' "$file" 2>/dev/null
+    else
+        tr '\n' ' ' < "$file" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
+    fi
+}
+
+release_asset_url_by_name() {
+    local file="$1"
+    local asset_name="$2"
+
+    if [ "$JQ_AVAILABLE" = true ]; then
+        jq -r --arg name "$asset_name" '.assets[]? | select(.name == $name) | .browser_download_url // empty' "$file" 2>/dev/null | head -n 1
+    else
+        split_json_objects "$file" | awk -v asset="$asset_name" 'index($0, "\"name\":\"" asset "\"") || index($0, "\"name\": \"" asset "\"")' | sed -n 's/.*"browser_download_url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
+    fi
+}
+
+release_first_asset_url_matching() {
+    local file="$1"
+    local pattern="$2"
+
+    if [ "$JQ_AVAILABLE" = true ]; then
+        jq -r --arg pattern "$pattern" '.assets[]? | select((.browser_download_url // "") | test($pattern)) | .browser_download_url // empty' "$file" 2>/dev/null | head -n 1
+    else
+        split_json_objects "$file" | sed -n 's/.*"browser_download_url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | grep -E "$pattern" | head -n 1
+    fi
+}
+
+select_target_file() {
+    local file="$1"
+    local arch="$2"
+    local target=""
+
+    target="$(json_file_names "$file" | grep -E "^StellarCore_.*_linux_${arch}\.tar\.gz$" | head -n 1 || true)"
+    if [ -z "$target" ]; then
+        target="$(json_file_names "$file" | grep -E "^StellarCore_.*_linux_${arch}\.zip$" | head -n 1 || true)"
+    fi
+
+    printf '%s\n' "$target"
+}
+
+check_archive_entries() {
+    local list_file="$1"
+    local entry=""
+
+    while IFS= read -r entry; do
+        [ -z "$entry" ] && continue
+        case "$entry" in
+            /*|../*|*/../*|*/..|..|*\\*)
+                error "压缩包包含不安全路径: $entry"
+                return 1
+                ;;
+        esac
+    done < "$list_file"
+
+    return 0
+}
+
+list_tar_archive() {
+    local archive="$1"
+    local list_file="$2"
+    local mode=""
+
+    for mode in plain gzip xz bzip2; do
+        case "$mode" in
+            plain)
+                tar -tf "$archive" > "$list_file" 2>/dev/null && printf '%s\n' "$mode" && return 0
+                ;;
+            gzip)
+                tar -ztf "$archive" > "$list_file" 2>/dev/null && printf '%s\n' "$mode" && return 0
+                ;;
+            xz)
+                tar -Jtf "$archive" > "$list_file" 2>/dev/null && printf '%s\n' "$mode" && return 0
+                ;;
+            bzip2)
+                tar -jtf "$archive" > "$list_file" 2>/dev/null && printf '%s\n' "$mode" && return 0
+                ;;
+        esac
+    done
+
     return 1
 }
 
-# 尝试从GitHub直接下载二进制文件 (使用 GitHub API)
-download_binary_directly() {
-    echo "尝试直接下载二进制文件..."
+extract_tar_archive() {
+    local archive="$1"
+    local target_dir="$2"
+    local mode="$3"
 
-    GITHUB_REPO="65658dsf/StellarCore"
-    API_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
+    case "$mode" in
+        plain) tar -xf "$archive" -C "$target_dir" ;;
+        gzip) tar -zxf "$archive" -C "$target_dir" ;;
+        xz) tar -Jxf "$archive" -C "$target_dir" ;;
+        bzip2) tar -jxf "$archive" -C "$target_dir" ;;
+        *) return 1 ;;
+    esac
+}
 
-    # 获取最新的 Release 信息
-    echo "正在获取 GitHub 最新 Release 信息 (用于二进制下载)..."
-    RELEASE_INFO=$(curl -s "$API_URL")
+safe_extract_archive() {
+    local archive="$1"
+    local target_dir="$2"
+    local list_file="${TMP_ROOT}/archive-list-$(generate_random_string 8).txt"
+    local tar_mode=""
 
-    if [ -z "$RELEASE_INFO" ] || echo "$RELEASE_INFO" | grep -q '"message":"Not Found"'; then
-        echo "无法获取 GitHub Release 信息或仓库不存在 (用于二进制下载)"
-        return 1
+    mkdir -p "$target_dir" || return 1
+    log "正在检查压缩包条目..."
+
+    if tar_mode="$(list_tar_archive "$archive" "$list_file")"; then
+        check_archive_entries "$list_file" || return 1
+        log "正在解压 tar 压缩包..."
+        extract_tar_archive "$archive" "$target_dir" "$tar_mode"
+        return $?
     fi
 
-    # 提取 tag_name (版本号)
-    VERSION=$(echo "$RELEASE_INFO" | sed -n 's/.*"tag_name":"\([^"]*\)".*/\1/p' | sed 's/v//')
-    if [ -z "$VERSION" ]; then
-        echo "无法从 Release 信息中提取版本号 (用于二进制下载)"
-        return 1
-    fi
-    echo "检测到 GitHub 最新版本 (用于二进制下载): $VERSION"
-
-    # 直接下载二进制文件 (假设文件名就是 StellarCore)
-    BINARY_NAME="StellarCore" # 或者根据需要调整
-    BINARY_URL=$(echo "$RELEASE_INFO" | sed -n "s/.*\"browser_download_url\":\"[^\"]*\/${BINARY_NAME//\./\\.}\".*/\0/p" | sed -n 's/.*"browser_download_url":"\([^"]*\)".*/\1/p' | head -1)
-
-    if [ -z "$BINARY_URL" ]; then
-        echo "在 Release $VERSION 中未找到二进制文件: $BINARY_NAME"
-        return 1
+    if command_exists unzip && unzip -Z1 "$archive" > "$list_file" 2>/dev/null; then
+        check_archive_entries "$list_file" || return 1
+        log "正在解压 zip 压缩包..."
+        unzip -q "$archive" -d "$target_dir"
+        return $?
     fi
 
-    echo "尝试下载二进制文件: $BINARY_URL"
-
-    if download_with_retry "$BINARY_URL" "StellarCore"; then
-        chmod +x StellarCore
-        echo "二进制文件下载成功"
-        BINARY_PATH="StellarCore"
-        return 0
-    fi
-
-    echo "二进制文件下载失败"
+    error "所有解压方式均失败，可能是文件损坏或缺少 unzip"
     return 1
 }
 
+find_expected_binary() {
+    local search_dir="$1"
+    local candidate=""
 
-# 获取并安装最新版本 (使用新的 API)
-download_and_install() {
-    # 获取系统架构
-    ARCH=$(uname -m)
-    case $ARCH in
-        x86_64)    FRP_ARCH="amd64" ;;
-        aarch64)   FRP_ARCH="arm64" ;;
-        armv7l)    FRP_ARCH="arm32v7" ;; # 或 arm, 根据实际包名调整
+    candidate="$(find "$search_dir" -type f \( -name StellarCore -o -name frps \) -print | head -n 1)"
+    if [ -z "$candidate" ]; then
+        return 1
+    fi
+
+    chmod +x "$candidate"
+    printf '%s\n' "$candidate"
+}
+
+download_archive_and_prepare_binary() {
+    local url="$1"
+    local archive_name="$2"
+    local archive_path="${TMP_ROOT}/downloads/${archive_name}"
+    local extract_dir="${TMP_ROOT}/extracts/$(generate_random_string 8)"
+    local candidate=""
+
+    if ! download_with_retry "$url" "$archive_path" 1024; then
+        return 1
+    fi
+
+    if ! safe_extract_archive "$archive_path" "$extract_dir"; then
+        return 1
+    fi
+
+    candidate="$(find_expected_binary "$extract_dir")" || {
+        error "压缩包中未找到预期二进制文件 StellarCore 或 frps"
+        return 1
+    }
+
+    PREPARED_BINARY="$candidate"
+    return 0
+}
+
+download_direct_binary() {
+    local url="$1"
+    local name="$2"
+    local output="${TMP_ROOT}/downloads/${name}"
+
+    if ! download_with_retry "$url" "$output" 1024; then
+        return 1
+    fi
+
+    chmod +x "$output"
+    PREPARED_BINARY="$output"
+    return 0
+}
+
+detect_arch() {
+    local arch
+    arch="$(uname -m)"
+
+    case "$arch" in
+        x86_64|amd64) FRP_ARCH="amd64" ;;
+        aarch64|arm64) FRP_ARCH="arm64" ;;
+        armv7l|armv7*) FRP_ARCH="arm32v7" ;;
         i386|i686) FRP_ARCH="386" ;;
-        *)         echo "警告：未明确支持的架构: $ARCH，尝试使用 amd64"; FRP_ARCH="amd64" ;; # 默认或退出
+        *)
+            warn "未明确支持的架构: $arch，尝试使用 amd64"
+            FRP_ARCH="amd64"
+            ;;
     esac
 
-    echo "检测到系统架构: $ARCH, 对应 Frp 架构标识: $FRP_ARCH"
-
-    BASE_API_URL="https://resources.stellarfrp.top/api/fs/list"
-    BASE_DOWNLOAD_URL="https://resources.stellarfrp.top/d/StellarCore"
-    ROOT_PATH="StellarCore"
-
-    echo "正在获取主目录信息..."
-    ROOT_RESPONSE=$(curl -s "${BASE_API_URL}?path=${ROOT_PATH}")
-    if [ $? -ne 0 ]; then
-        echo "无法获取主目录信息，将尝试其他下载方式"
-        DOWNLOAD_SUCCESSFUL=false
-    else
-        # 获取所有下载源 (目录名) - 使用 sed 和 grep 提取
-        # 假设 JSON 格式类似 {"code":200, "message":"success", "data":{"content":[{"name":"源1","size":0,"is_dir":true,"..."}, ...]}}
-        # 提取 "name":"..." 且 "is_dir":true 的项
-        DOWNLOAD_DIRS=$(echo "$ROOT_RESPONSE" | sed -n 's/.*"name":"\([^"]*\)","size":[0-9]*,"is_dir":true,.*/\1/p')
-
-        DOWNLOAD_SUCCESSFUL=false
-
-        if [ -n "$DOWNLOAD_DIRS" ]; then
-            for dir in $DOWNLOAD_DIRS; do
-                echo "尝试下载源: $dir"
-
-                # 获取 frps 目录
-                FRPS_RESPONSE=$(curl -s "${BASE_API_URL}?path=${ROOT_PATH}/${dir}")
-                # 提取名为 "frps" 且是目录的项
-                FRPS_DIR=$(echo "$FRPS_RESPONSE" | sed -n 's/.*"name":"frps","size":[0-9]*,"is_dir":true,.*/frps/p' | head -1)
-
-                if [ -n "$FRPS_DIR" ]; then
-                    echo "在源 $dir 中找到 frps 目录"
-
-                    # 获取版本目录 (假设第一个是最新或可用的)
-                    VERSIONS_RESPONSE=$(curl -s "${BASE_API_URL}?path=${ROOT_PATH}/${dir}/frps")
-                    # 提取所有目录名作为版本
-                    CURRENT_VERSION=$(echo "$VERSIONS_RESPONSE" | sed -n 's/.*"name":"\([^"]*\)","size":[0-9]*,"is_dir":true,.*/\1/p' | head -1)
-
-                    if [ -n "$CURRENT_VERSION" ]; then
-                        echo "在源 $dir 中找到版本: $CURRENT_VERSION"
-
-                        # 检查是否有适合当前系统的安装包
-                        FILES_RESPONSE=$(curl -s "${BASE_API_URL}?path=${ROOT_PATH}/${dir}/frps/${CURRENT_VERSION}")
-                        # 匹配 linux 和对应架构的文件 - 使用 sed 提取
-                        TARGET_FILE=$(echo "$FILES_RESPONSE" | sed -n "s/.*\"name\":\"\(StellarCore_.*_linux_${FRP_ARCH}\.tar\.gz\)\".*/\1/p" | head -1)
-                        # 如果 tar.gz 没找到，尝试 zip
-                        if [ -z "$TARGET_FILE" ]; then
-                            TARGET_FILE=$(echo "$FILES_RESPONSE" | sed -n "s/.*\"name\":\"\(StellarCore_.*_linux_${FRP_ARCH}\.zip\)\".*/\1/p" | head -1)
-                        fi
-
-                        if [ -n "$TARGET_FILE" ]; then
-                            echo "找到适合当前系统的安装包: $TARGET_FILE"
-                            DOWNLOAD_URL="${BASE_DOWNLOAD_URL}/${dir}/frps/${CURRENT_VERSION}/${TARGET_FILE}"
-                            echo "尝试下载: $DOWNLOAD_URL"
-
-                            ARCHIVE_NAME="stellarcore.$(echo "$TARGET_FILE" | sed -n 's/.*\.\(tar\.gz\|zip\)$/\1/p')"
-                            if download_with_retry "$DOWNLOAD_URL" "$ARCHIVE_NAME"; then
-                                if try_extract "$ARCHIVE_NAME"; then
-                                    DOWNLOAD_SUCCESSFUL=true
-                                    rm -f "$ARCHIVE_NAME" # 清理下载的压缩包
-                                    break # 成功后跳出循环
-                                else
-                                    echo "解压失败，尝试下一个源"
-                                    rm -f "$ARCHIVE_NAME"
-                                fi
-                            else
-                                echo "下载失败，尝试下一个源"
-                            fi
-                        else
-                            echo "在源 $dir 版本 $CURRENT_VERSION 中未找到适合 $FRP_ARCH 的 linux 安装包，尝试下一个源"
-                        fi
-                    else
-                        echo "在源 $dir 中未找到版本信息，尝试下一个源"
-                    fi
-                else
-                    echo "在源 $dir 中未找到 frps 目录，尝试下一个源"
-                fi
-            done
-        else
-             echo "主目录中未找到任何下载源，将尝试其他下载方式"
-        fi
-    fi
-
-    # 如果所有源都失败，尝试从GitHub下载
-    if [ "$DOWNLOAD_SUCCESSFUL" != true ]; then
-        echo "从 StellarFrp 所有源下载均失败，尝试从 GitHub 下载..."
-        if download_from_github; then
-            DOWNLOAD_SUCCESSFUL=true
-        fi
-    fi
-
-    # 如果所有压缩包下载都失败，尝试直接下载二进制文件
-    if [ "$DOWNLOAD_SUCCESSFUL" != true ]; then
-        echo "所有压缩包下载方式均失败，尝试直接下载二进制文件..."
-        if download_binary_directly; then
-            DOWNLOAD_SUCCESSFUL=true
-        fi
-    fi
-
-    if [ "$DOWNLOAD_SUCCESSFUL" != true ]; then
-        echo "所有下载方式均失败，无法继续安装"
-        exit 1
-    fi
-
-    # 查找二进制文件
-    if [ -z "$BINARY_PATH" ]; then
-        if [ -f "StellarCore" ]; then
-            BINARY_PATH="StellarCore"
-        elif [ -f "frps" ]; then
-            BINARY_PATH="frps"
-        else
-            echo "错误：未找到可执行文件"
-            exit 1
-        fi
-    fi
-
-    # 安装StellarCore
-    echo "安装StellarCore到/usr/local/bin"
-    cp "$BINARY_PATH" /usr/local/bin/stellarcore && chmod +x /usr/local/bin/stellarcore
-
-    # 清理临时文件
-    rm -f "$BINARY_PATH"
+    log "检测到系统架构: $arch, 对应 Frp 架构标识: $FRP_ARCH"
 }
 
+download_from_primary_source() {
+    local root_json="${TMP_ROOT}/root.json"
+    local frps_json="${TMP_ROOT}/frps.json"
+    local versions_json="${TMP_ROOT}/versions.json"
+    local files_json="${TMP_ROOT}/files.json"
+    local dir=""
+    local current_version=""
+    local target_file=""
+    local download_url=""
 
-# 验证数字输入函数
+    log "正在获取主目录信息..."
+    if ! fetch_api_list "$ROOT_PATH" "$root_json"; then
+        warn "无法获取主目录信息"
+        return 1
+    fi
+
+    while IFS= read -r dir; do
+        [ -z "$dir" ] && continue
+        log "尝试下载源: $dir"
+
+        if ! fetch_api_list "${ROOT_PATH}/${dir}" "$frps_json"; then
+            warn "无法获取源 ${dir} 的目录信息，尝试下一个源"
+            continue
+        fi
+
+        if ! json_dir_names "$frps_json" | grep -Fxq "frps"; then
+            warn "在源 ${dir} 中未找到 frps 目录，尝试下一个源"
+            continue
+        fi
+
+        if ! fetch_api_list "${ROOT_PATH}/${dir}/frps" "$versions_json"; then
+            warn "无法获取源 ${dir} 的版本信息，尝试下一个源"
+            continue
+        fi
+
+        current_version="$(json_dir_names "$versions_json" | head -n 1)"
+        if [ -z "$current_version" ]; then
+            warn "在源 ${dir} 中未找到版本信息，尝试下一个源"
+            continue
+        fi
+        log "在源 ${dir} 中找到版本: $current_version"
+
+        if ! fetch_api_list "${ROOT_PATH}/${dir}/frps/${current_version}" "$files_json"; then
+            warn "无法获取源 ${dir} 版本 ${current_version} 的文件信息，尝试下一个源"
+            continue
+        fi
+
+        target_file="$(select_target_file "$files_json" "$FRP_ARCH")"
+        if [ -z "$target_file" ]; then
+            warn "在源 ${dir} 版本 ${current_version} 中未找到适合 ${FRP_ARCH} 的 linux 安装包，尝试下一个源"
+            continue
+        fi
+
+        log "找到适合当前系统的安装包: $target_file"
+        download_url="${BASE_DOWNLOAD_URL}/${dir}/frps/${current_version}/${target_file}"
+        log "尝试下载: $download_url"
+
+        if download_archive_and_prepare_binary "$download_url" "$target_file"; then
+            return 0
+        fi
+
+        warn "下载或解压失败，尝试下一个源"
+    done < <(json_dir_names "$root_json")
+
+    warn "主目录中未找到可用下载源"
+    return 1
+}
+
+download_from_github() {
+    local release_json="${TMP_ROOT}/github-release.json"
+    local version=""
+    local asset_name=""
+    local download_url=""
+
+    log "尝试从 GitHub 备用源下载..."
+    if ! download_with_retry "$GITHUB_API_URL" "$release_json" 1; then
+        return 1
+    fi
+
+    version="$(release_tag_name "$release_json" | sed 's/^v//')"
+    if [ -z "$version" ]; then
+        error "无法从 GitHub Release 信息中提取版本号"
+        return 1
+    fi
+    log "检测到 GitHub 最新版本: $version"
+
+    asset_name="StellarCore_${version}_linux_${FRP_ARCH}.tar.gz"
+    download_url="$(release_asset_url_by_name "$release_json" "$asset_name")"
+
+    if [ -z "$download_url" ]; then
+        asset_name="StellarCore_${version}_linux_${FRP_ARCH}.zip"
+        download_url="$(release_asset_url_by_name "$release_json" "$asset_name")"
+    fi
+
+    if [ -z "$download_url" ]; then
+        warn "未找到精确匹配资产，尝试使用第一个 .tar.gz 资产"
+        download_url="$(release_first_asset_url_matching "$release_json" '\.tar\.gz$')"
+        asset_name="${download_url##*/}"
+    fi
+
+    if [ -z "$download_url" ]; then
+        error "在 GitHub Release ${version} 中未找到可用资产"
+        return 1
+    fi
+
+    log "尝试从 GitHub 下载: $download_url"
+    download_archive_and_prepare_binary "$download_url" "$asset_name"
+}
+
+download_binary_directly() {
+    local release_json="${TMP_ROOT}/github-release-direct.json"
+    local download_url=""
+    local binary_name=""
+
+    log "尝试直接下载二进制文件..."
+    if ! download_with_retry "$GITHUB_API_URL" "$release_json" 1; then
+        return 1
+    fi
+
+    download_url="$(release_asset_url_by_name "$release_json" "StellarCore")"
+    binary_name="StellarCore"
+    if [ -z "$download_url" ]; then
+        download_url="$(release_asset_url_by_name "$release_json" "frps")"
+        binary_name="frps"
+    fi
+
+    if [ -z "$download_url" ]; then
+        error "在 GitHub Release 中未找到二进制文件 StellarCore 或 frps"
+        return 1
+    fi
+
+    log "尝试下载二进制文件: $download_url"
+    download_direct_binary "$download_url" "$binary_name"
+}
+
+download_and_prepare() {
+    PREPARED_BINARY=""
+    detect_arch
+
+    if download_from_primary_source; then
+        return 0
+    fi
+
+    warn "从 StellarFrp 所有源下载均失败，尝试从 GitHub 下载"
+    if download_from_github; then
+        return 0
+    fi
+
+    warn "所有压缩包下载方式均失败，尝试直接下载二进制文件"
+    if download_binary_directly; then
+        return 0
+    fi
+
+    error "所有下载方式均失败，无法继续安装"
+    return 1
+}
+
+install_binary_atomic() {
+    local source_binary="$1"
+    local temp_binary="${BIN_PATH}.tmp.$$"
+
+    mkdir -p "$(dirname "$BIN_PATH")" || return 1
+    cp "$source_binary" "$temp_binary" || {
+        rm -f "$temp_binary"
+        return 1
+    }
+    chmod 755 "$temp_binary" || {
+        rm -f "$temp_binary"
+        return 1
+    }
+    mv -f "$temp_binary" "$BIN_PATH"
+}
+
+ensure_config_dir() {
+    mkdir -p "$CONFIG_DIR" || return 1
+    chmod 700 "$CONFIG_DIR" || return 1
+}
+
+install_config_file() {
+    local source_config="$1"
+    local temp_config="${CONFIG_PATH}.tmp.$$"
+
+    ensure_config_dir || return 1
+    cp "$source_config" "$temp_config" || {
+        rm -f "$temp_config"
+        return 1
+    }
+    chmod 600 "$temp_config" || {
+        rm -f "$temp_config"
+        return 1
+    }
+    mv -f "$temp_config" "$CONFIG_PATH"
+}
+
 validate_number() {
-    local input=$1
-    local name=$2
+    local input="$1"
+    local name="$2"
     if ! [[ "$input" =~ ^[0-9]+$ ]]; then
-        echo "$name 必须为数字"
+        error "$name 必须为数字"
         return 1
     fi
     return 0
 }
 
-# 验证端口号范围函数
 validate_port() {
-    local port=$1
-    local name=$2
+    local port="$1"
+    local name="$2"
     if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
-        echo "$name 必须在 1-65535 之间"
+        error "$name 必须在 1-65535 之间"
         return 1
     fi
     return 0
 }
 
-# 验证端口范围函数
 validate_port_range() {
-    local min=$1
-    local max=$2
+    local min="$1"
+    local max="$2"
     if [ "$min" -gt "$max" ]; then
-        echo "最小端口不能大于最大端口"
+        error "最小端口不能大于最大端口"
         return 1
     fi
     return 0
 }
 
-# 检查端口是否被占用
+current_config_ports() {
+    if [ ! -f "$CONFIG_PATH" ]; then
+        return 0
+    fi
+
+    sed -n 's/^[[:space:]]*\(bindPort\|webServer\.port\|vhostHTTPPort\|vhostHTTPSPort\)[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\2/p' "$CONFIG_PATH"
+}
+
+is_current_config_port() {
+    local port="$1"
+
+    [ "$PORT_CHECK_ALLOW_CURRENT_CONFIG" = true ] || return 1
+    current_config_ports | grep -Fxq "$port"
+}
+
+port_in_use() {
+    local port="$1"
+
+    if command_exists ss; then
+        ss -tuln 2>/dev/null | grep -E "[.:]${port}[[:space:]]" >/dev/null 2>&1
+        return $?
+    fi
+
+    if command_exists netstat; then
+        netstat -tuln 2>/dev/null | grep -E "[.:]${port}[[:space:]]" >/dev/null 2>&1
+        return $?
+    fi
+
+    return 2
+}
+
 check_port() {
-    local port=$1
-    local service=$2
-    # 更健壮的检查，避免部分匹配
-    if ss -tuln | grep -E ":$port\s" > /dev/null 2>&1; then
-        echo "错误: 端口 $port ($service) 已被占用，请选择其他端口"
+    local port="$1"
+    local service="$2"
+
+    port_in_use "$port"
+    local status=$?
+
+    if [ "$status" -eq 0 ]; then
+        if is_current_config_port "$port"; then
+            warn "端口 ${port} (${service}) 当前已被现有 StellarFrps 配置使用，更新时允许复用"
+            return 0
+        fi
+        error "端口 ${port} (${service}) 已被占用，请选择其他端口"
         return 1
     fi
+
+    if [ "$status" -eq 2 ]; then
+        warn "未找到 ss 或 netstat，无法自动检查端口 ${port} (${service}) 是否被占用"
+    fi
+
     return 0
 }
 
-
-# 更新函数
-update_stellarfrps() {
-    echo "开始更新 StellarFrps 服务..."
-    # 备份配置文件
-    if [ -f "/etc/stellarcore/frps.toml" ]; then
-        cp /etc/stellarcore/frps.toml /etc/stellarcore/frps.toml.bak
-        echo "已备份配置文件到 /etc/stellarcore/frps.toml.bak"
-    fi
-
-    # 停止服务
-    systemctl stop stellarfrps
-
-    # 下载并安装新版本
-    download_and_install
-
-    # 询问用户是否需要修改配置文件
-    read -p "是否需要修改配置文件? (y/n): " MODIFY_CONFIG
-
-    if [[ "$MODIFY_CONFIG" == "y" || "$MODIFY_CONFIG" == "Y" ]]; then
-        echo "开始修改配置文件..."
-
-        # 获取用户输入并立即验证
-        while true; do
-            read -p "请输入服务绑定端口: " BIND_PORT
-            if validate_number "$BIND_PORT" "服务绑定端口" && validate_port "$BIND_PORT" "服务绑定端口" && check_port "$BIND_PORT" "服务绑定端口"; then
-                break
-            fi
-        done
-
-        while true; do
-            read -p "请输入开放端口范围最小值: " MIN_PORT
-            if validate_number "$MIN_PORT" "最小开放端口" && validate_port "$MIN_PORT" "最小开放端口"; then
-                break
-            fi
-        done
-
-        while true; do
-            read -p "请输入开放端口范围最大值: " MAX_PORT
-            if validate_number "$MAX_PORT" "最大开放端口" && validate_port "$MAX_PORT" "最大开放端口" && validate_port_range "$MIN_PORT" "$MAX_PORT"; then
-                break
-            fi
-        done
-
-        while true; do
-            read -p "请输入面板端口: " DASH_PORT
-            if validate_number "$DASH_PORT" "面板端口" && validate_port "$DASH_PORT" "面板端口" && check_port "$DASH_PORT" "面板端口"; then
-                break
-            fi
-        done
-
-        read -p "请输入面板用户 (留空随机生成): " DASH_USER
-        read -p "请输入面板密码 (留空随机生成): " DASH_PWD
-
-        # 如果用户名为空，生成随机用户名
-        if [ -z "$DASH_USER" ]; then
-            DASH_USER="user_$(generate_random_string 8)"
-            echo "已生成随机用户名: $DASH_USER"
-        fi
-
-        # 如果密码为空，生成随机密码
-        if [ -z "$DASH_PWD" ]; then
-            DASH_PWD="$(generate_random_string 16)"
-            echo "已生成随机密码: $DASH_PWD"
-        fi
-
-        # 询问用户是否开启 HTTP/HTTPS 端口
-        while true; do
-            read -p "是否开启 HTTP 端口 (80)? (y/n): " ENABLE_HTTP
-            if [[ "$ENABLE_HTTP" == "y" || "$ENABLE_HTTP" == "Y" ]]; then
-                if check_port 80 "HTTP端口"; then
-                    break
-                fi
-            elif [[ "$ENABLE_HTTP" == "n" || "$ENABLE_HTTP" == "N" ]]; then
-                break
-            else
-                echo "请输入 y 或 n"
-            fi
-        done
-
-        while true; do
-            read -p "是否开启 HTTPS 端口 (443)? (y/n): " ENABLE_HTTPS
-            if [[ "$ENABLE_HTTPS" == "y" || "$ENABLE_HTTPS" == "Y" ]]; then
-               if check_port 443 "HTTPS端口"; then
-                   break
-               fi
-            elif [[ "$ENABLE_HTTPS" == "n" || "$ENABLE_HTTPS" == "N" ]]; then
-                break
-            else
-                echo "请输入 y 或 n"
-            fi
-        done
-
-        # 生成配置文件
-        echo "生成配置文件..."
-        # 使用 tee 和 here document 更安全地写入文件
-        cat > /etc/stellarcore/frps.toml << EOF
-bindPort = $BIND_PORT
-allowPorts = [
-  { start = $MIN_PORT, end = $MAX_PORT },
-]
-webServer.addr = "0.0.0.0"
-webServer.port = $DASH_PORT
-webServer.user = "$DASH_USER"
-webServer.password = "$DASH_PWD"
-EOF
-
-        # 根据用户选择，添加 HTTP/HTTPS 端口
-        if [[ "$ENABLE_HTTP" == "y" || "$ENABLE_HTTP" == "Y" ]]; then
-            echo "vhostHTTPPort = 80" >> /etc/stellarcore/frps.toml
-        fi
-
-        if [[ "$ENABLE_HTTPS" == "y" || "$ENABLE_HTTPS" == "Y" ]]; then
-            echo "vhostHTTPSPort = 443" >> /etc/stellarcore/frps.toml
-        fi
-
-        # 继续添加剩余的配置
-        cat >> /etc/stellarcore/frps.toml << 'EOF' # 使用 'EOF' 防止变量替换
-[[httpPlugins]]
-addr = "https://api.stellarfrp.top"
-path = "/api/v1/proxy/auth"
-ops = ["Login", "NewProxy", "CloseProxy"]
-EOF
-
-        echo "配置文件已更新"
-
-        # 配置防火墙
-        echo "配置防火墙..."
-        if command -v firewall-cmd &> /dev/null; then
-            firewall-cmd --permanent --add-port=$BIND_PORT/tcp
-            firewall-cmd --permanent --add-port=$DASH_PORT/tcp
-            firewall-cmd --permanent --add-port=$MIN_PORT-$MAX_PORT/tcp
-            if [[ "$ENABLE_HTTP" == "y" || "$ENABLE_HTTP" == "Y" ]]; then
-                 firewall-cmd --permanent --add-port=80/tcp
-            fi
-            if [[ "$ENABLE_HTTPS" == "y" || "$ENABLE_HTTPS" == "Y" ]]; then
-                 firewall-cmd --permanent --add-port=443/tcp
-            fi
-            firewall-cmd --reload
-        elif command -v ufw &> /dev/null; then
-            ufw allow $BIND_PORT/tcp
-            ufw allow $DASH_PORT/tcp
-            ufw allow $MIN_PORT:$MAX_PORT/tcp
-            if [[ "$ENABLE_HTTP" == "y" || "$ENABLE_HTTP" == "Y" ]]; then
-                 ufw allow 80/tcp
-            fi
-            if [[ "$ENABLE_HTTPS" == "y" || "$ENABLE_HTTPS" == "Y" ]]; then
-                 ufw allow 443/tcp
-            fi
-            ufw reload
-        else
-            echo "警告：未找到支持的防火墙工具，请手动开放端口"
-        fi
-
-        # 显示配置信息
-        PUBLIC_IP=$(curl -s https://api.ipify.org || curl -s https://ifconfig.me || curl -s https://api.ip.sb/ip)
-        echo "
-=== 重要配置信息(请将以下信息发送到管理员) ===
-服务绑定端口: $BIND_PORT
-开放端口范围: $MIN_PORT-$MAX_PORT
-面板访问地址: http://${PUBLIC_IP}:$DASH_PORT
-面板用户名: $DASH_USER
-面板密码: $DASH_PWD
-==================
-"
-    else
-        echo "保留原有配置文件"
-    fi
-
-    # 重启服务
-    systemctl start stellarfrps
-
-    echo "StellarFrps 服务更新完成"
-}
-
-
-# 安装函数
-install_stellarfrps() {
-    echo "开始安装 StellarFrps 服务..."
-
-    # 下载并安装
-    download_and_install
-
-    # 创建配置目录
-    mkdir -p /etc/stellarcore
-
-    # 获取用户输入并立即验证
+prompt_runtime_config() {
     while true; do
-        read -p "请输入服务绑定端口: " BIND_PORT
+        read -r -p "请输入服务绑定端口: " BIND_PORT
         if validate_number "$BIND_PORT" "服务绑定端口" && validate_port "$BIND_PORT" "服务绑定端口" && check_port "$BIND_PORT" "服务绑定端口"; then
             break
         fi
     done
 
     while true; do
-        read -p "请输入开放端口范围最小值: " MIN_PORT
+        read -r -p "请输入开放端口范围最小值: " MIN_PORT
         if validate_number "$MIN_PORT" "最小开放端口" && validate_port "$MIN_PORT" "最小开放端口"; then
             break
         fi
     done
 
     while true; do
-        read -p "请输入开放端口范围最大值: " MAX_PORT
+        read -r -p "请输入开放端口范围最大值: " MAX_PORT
         if validate_number "$MAX_PORT" "最大开放端口" && validate_port "$MAX_PORT" "最大开放端口" && validate_port_range "$MIN_PORT" "$MAX_PORT"; then
             break
         fi
     done
 
     while true; do
-        read -p "请输入面板端口: " DASH_PORT
-        if validate_number "$DASH_PORT" "面板端口" && validate_port "$DASH_PORT" "面板端口" && check_port "$DASH_PORT" "面板端口"; then
+        read -r -p "请输入面板端口: " DASH_PORT
+        if ! validate_number "$DASH_PORT" "面板端口" || ! validate_port "$DASH_PORT" "面板端口"; then
+            continue
+        fi
+        if [ "$DASH_PORT" = "$BIND_PORT" ]; then
+            error "面板端口不能与服务绑定端口相同"
+            continue
+        fi
+        if check_port "$DASH_PORT" "面板端口"; then
             break
         fi
     done
 
-    read -p "请输入面板用户 (留空随机生成): " DASH_USER
-    read -p "请输入面板密码 (留空随机生成): " DASH_PWD
+    read -r -p "请输入面板用户 (留空随机生成): " DASH_USER
+    read -r -p "请输入面板密码 (留空随机生成): " DASH_PWD
 
-    # 如果用户名为空，生成随机用户名
     if [ -z "$DASH_USER" ]; then
         DASH_USER="user_$(generate_random_string 8)"
-        echo "已生成随机用户名: $DASH_USER"
+        log "已生成随机用户名: $DASH_USER"
     fi
 
-    # 如果密码为空，生成随机密码
     if [ -z "$DASH_PWD" ]; then
         DASH_PWD="$(generate_random_string 16)"
-        echo "已生成随机密码: $DASH_PWD"
+        log "已生成随机密码: $DASH_PWD"
     fi
 
-    # 询问用户是否开启 HTTP/HTTPS 端口
     while true; do
-        read -p "是否开启 HTTP 端口 (80)? (y/n): " ENABLE_HTTP
-        if [[ "$ENABLE_HTTP" == "y" || "$ENABLE_HTTP" == "Y" ]]; then
-            if check_port 80 "HTTP端口"; then
+        read -r -p "是否开启 HTTP 端口 (80)? (y/n): " ENABLE_HTTP
+        case "$ENABLE_HTTP" in
+            y|Y)
+                check_port 80 "HTTP端口" && break
+                ;;
+            n|N)
                 break
-            fi
-        elif [[ "$ENABLE_HTTP" == "n" || "$ENABLE_HTTP" == "N" ]]; then
-            break
-        else
-            echo "请输入 y 或 n"
-        fi
+                ;;
+            *)
+                error "请输入 y 或 n"
+                ;;
+        esac
     done
 
     while true; do
-        read -p "是否开启 HTTPS 端口 (443)? (y/n): " ENABLE_HTTPS
-        if [[ "$ENABLE_HTTPS" == "y" || "$ENABLE_HTTPS" == "Y" ]]; then
-            if check_port 443 "HTTPS端口"; then
+        read -r -p "是否开启 HTTPS 端口 (443)? (y/n): " ENABLE_HTTPS
+        case "$ENABLE_HTTPS" in
+            y|Y)
+                check_port 443 "HTTPS端口" && break
+                ;;
+            n|N)
                 break
-            fi
-        elif [[ "$ENABLE_HTTPS" == "n" || "$ENABLE_HTTPS" == "N" ]]; then
-            break
-        else
-            echo "请输入 y 或 n"
-        fi
+                ;;
+            *)
+                error "请输入 y 或 n"
+                ;;
+        esac
     done
+}
 
-    # 生成配置文件
-    echo "生成配置文件..."
-    cat > /etc/stellarcore/frps.toml << EOF
-bindPort = $BIND_PORT
-allowPorts = [
-  { start = $MIN_PORT, end = $MAX_PORT },
-]
-webServer.addr = "0.0.0.0"
-webServer.port = $DASH_PORT
-webServer.user = "$DASH_USER"
-webServer.password = "$DASH_PWD"
-EOF
+write_config_file() {
+    local target="$1"
 
-    # 根据用户选择，添加 HTTP/HTTPS 端口
-    if [[ "$ENABLE_HTTP" == "y" || "$ENABLE_HTTP" == "Y" ]]; then
-        echo "vhostHTTPPort = 80" >> /etc/stellarcore/frps.toml
-    fi
-
-    if [[ "$ENABLE_HTTPS" == "y" || "$ENABLE_HTTPS" == "Y" ]]; then
-        echo "vhostHTTPSPort = 443" >> /etc/stellarcore/frps.toml
-    fi
-
-    # 继续添加剩余的配置
-    cat >> /etc/stellarcore/frps.toml << 'EOF' # 使用 'EOF' 防止变量替换
-[[httpPlugins]]
-addr = "https://api.stellarfrp.top"
-path = "/api/v1/proxy/auth"
-ops = ["Login", "NewProxy", "CloseProxy"]
-EOF
-
-    # 配置防火墙
-    echo "配置防火墙..."
-    if command -v firewall-cmd &> /dev/null; then
-        firewall-cmd --permanent --add-port=$BIND_PORT/tcp
-        firewall-cmd --permanent --add-port=$DASH_PORT/tcp
-        firewall-cmd --permanent --add-port=$MIN_PORT-$MAX_PORT/tcp
+    {
+        printf 'bindPort = %s\n' "$BIND_PORT"
+        printf 'allowPorts = [\n'
+        printf '  { start = %s, end = %s },\n' "$MIN_PORT" "$MAX_PORT"
+        printf ']\n'
+        printf 'webServer.addr = "0.0.0.0"\n'
+        printf 'webServer.port = %s\n' "$DASH_PORT"
+        printf 'webServer.user = "%s"\n' "$DASH_USER"
+        printf 'webServer.password = "%s"\n' "$DASH_PWD"
         if [[ "$ENABLE_HTTP" == "y" || "$ENABLE_HTTP" == "Y" ]]; then
-             firewall-cmd --permanent --add-port=80/tcp
+            printf 'vhostHTTPPort = 80\n'
         fi
         if [[ "$ENABLE_HTTPS" == "y" || "$ENABLE_HTTPS" == "Y" ]]; then
-             firewall-cmd --permanent --add-port=443/tcp
+            printf 'vhostHTTPSPort = 443\n'
+        fi
+        printf '[[httpPlugins]]\n'
+        printf 'addr = "https://api.stellarfrp.top"\n'
+        printf 'path = "/api/v1/proxy/auth"\n'
+        printf 'ops = ["Login", "NewProxy", "CloseProxy"]\n'
+    } > "$target" || return 1
+
+    chmod 600 "$target"
+}
+
+configure_firewall() {
+    log "配置防火墙..."
+
+    if command_exists firewall-cmd; then
+        firewall-cmd --permanent --add-port="${BIND_PORT}/tcp"
+        firewall-cmd --permanent --add-port="${DASH_PORT}/tcp"
+        firewall-cmd --permanent --add-port="${MIN_PORT}-${MAX_PORT}/tcp"
+        if [[ "$ENABLE_HTTP" == "y" || "$ENABLE_HTTP" == "Y" ]]; then
+            firewall-cmd --permanent --add-port=80/tcp
+        fi
+        if [[ "$ENABLE_HTTPS" == "y" || "$ENABLE_HTTPS" == "Y" ]]; then
+            firewall-cmd --permanent --add-port=443/tcp
         fi
         firewall-cmd --reload
-    elif command -v ufw &> /dev/null; then
-        ufw allow $BIND_PORT/tcp
-        ufw allow $DASH_PORT/tcp
-        ufw allow $MIN_PORT:$MAX_PORT/tcp
+    elif command_exists ufw; then
+        ufw allow "${BIND_PORT}/tcp"
+        ufw allow "${DASH_PORT}/tcp"
+        ufw allow "${MIN_PORT}:${MAX_PORT}/tcp"
         if [[ "$ENABLE_HTTP" == "y" || "$ENABLE_HTTP" == "Y" ]]; then
-             ufw allow 80/tcp
+            ufw allow 80/tcp
         fi
         if [[ "$ENABLE_HTTPS" == "y" || "$ENABLE_HTTPS" == "Y" ]]; then
-             ufw allow 443/tcp
+            ufw allow 443/tcp
         fi
         ufw reload
     else
-        echo "警告：未找到支持的防火墙工具，请手动开放端口"
+        warn "未找到支持的防火墙工具，请手动开放端口"
+    fi
+}
+
+get_public_ip() {
+    local ip=""
+
+    if command_exists curl; then
+        ip="$(curl -fsS --connect-timeout 5 --max-time 10 https://api.ipify.org 2>/dev/null || true)"
+        [ -n "$ip" ] || ip="$(curl -fsS --connect-timeout 5 --max-time 10 https://ifconfig.me 2>/dev/null || true)"
+        [ -n "$ip" ] || ip="$(curl -fsS --connect-timeout 5 --max-time 10 https://api.ip.sb/ip 2>/dev/null || true)"
+    elif command_exists wget; then
+        ip="$(wget -qO- --timeout=10 https://api.ipify.org 2>/dev/null || true)"
+        [ -n "$ip" ] || ip="$(wget -qO- --timeout=10 https://ifconfig.me 2>/dev/null || true)"
+        [ -n "$ip" ] || ip="$(wget -qO- --timeout=10 https://api.ip.sb/ip 2>/dev/null || true)"
     fi
 
-    # 创建系统服务
-    echo "创建系统服务..."
-    cat > /etc/systemd/system/stellarfrps.service << 'EOF' # 使用 'EOF' 防止变量替换
+    printf '%s\n' "${ip:-服务器公网IP}"
+}
+
+show_config_summary() {
+    local public_ip
+    public_ip="$(get_public_ip)"
+
+    cat << EOF
+
+=== 重要配置信息(请将以下信息发送到管理员) ===
+服务绑定端口: $BIND_PORT
+开放端口范围: $MIN_PORT-$MAX_PORT
+面板访问地址: http://${public_ip}:$DASH_PORT
+面板用户名: $DASH_USER
+面板密码: $DASH_PWD
+==================
+
+EOF
+}
+
+write_service_file() {
+    local temp_service="${SERVICE_PATH}.tmp.$$"
+
+    cat > "$temp_service" << 'EOF'
 [Unit]
 Description=StellarFrp Server Service
 After=network.target
@@ -771,43 +864,176 @@ ExecStart=/usr/local/bin/stellarcore -c /etc/stellarcore/frps.toml
 WantedBy=multi-user.target
 EOF
 
-    # 设置服务权限
-    chmod 644 /etc/systemd/system/stellarfrps.service
-
-    # 重新加载systemd并启动服务
-    systemctl daemon-reload
-    systemctl enable stellarfrps.service
-    systemctl start stellarfrps.service
-
-    # 显示配置信息
-    PUBLIC_IP=$(curl -s https://api.ipify.org || curl -s https://ifconfig.me || curl -s https://api.ip.sb/ip)
-    echo "
-=== 重要配置信息(请将以下信息发送到管理员) ===
-服务绑定端口: $BIND_PORT
-开放端口范围: $MIN_PORT-$MAX_PORT
-面板访问地址: http://${PUBLIC_IP}:$DASH_PORT
-面板用户名: $DASH_USER
-面板密码: $DASH_PWD
-==================
-"
-
-    systemctl status stellarfrps.service --no-pager -l
+    chmod 644 "$temp_service" || {
+        rm -f "$temp_service"
+        return 1
+    }
+    mv -f "$temp_service" "$SERVICE_PATH"
 }
 
+check_installed() {
+    [ -f "$BIN_PATH" ] && [ -f "$SERVICE_PATH" ]
+}
 
-# 显示菜单
-echo "欢迎使用 StellarFrps 安装脚本"
-echo "-------------"
+start_service() {
+    systemctl start "$SERVICE_UNIT" && systemctl is-active --quiet "$SERVICE_UNIT"
+}
+
+uninstall_stellarfrps() {
+    log "开始卸载 StellarFrps 服务..."
+    systemctl stop "$SERVICE_UNIT" 2>/dev/null || true
+    systemctl disable "$SERVICE_UNIT" 2>/dev/null || true
+
+    rm -f "$BIN_PATH"
+    rm -f "$SERVICE_PATH"
+    rm -rf "$CONFIG_DIR"
+
+    systemctl daemon-reload
+    log "StellarFrps 服务卸载完成"
+}
+
+install_stellarfrps() {
+    local staged_config="${TMP_ROOT}/frps.toml.install"
+
+    log "开始安装 StellarFrps 服务..."
+
+    download_and_prepare || die "下载或准备安装文件失败"
+    install_binary_atomic "$PREPARED_BINARY" || die "安装 StellarCore 到 ${BIN_PATH} 失败"
+
+    prompt_runtime_config
+    write_config_file "$staged_config" || die "生成配置文件失败"
+    install_config_file "$staged_config" || die "安装配置文件失败"
+    configure_firewall
+
+    log "创建系统服务..."
+    write_service_file || die "创建系统服务失败"
+
+    systemctl daemon-reload || die "重新加载 systemd 失败"
+    systemctl enable "$SERVICE_UNIT" || die "启用服务失败"
+    start_service || die "启动服务失败，请手动检查 systemctl status ${SERVICE_UNIT}"
+
+    show_config_summary
+    systemctl status "$SERVICE_UNIT" --no-pager -l
+}
+
+restore_backup_binary() {
+    local backup_binary="$1"
+
+    if [ -n "$backup_binary" ] && [ -f "$backup_binary" ]; then
+        install_binary_atomic "$backup_binary" || warn "恢复旧二进制失败，请手动检查 ${BIN_PATH}"
+    fi
+}
+
+restore_backup_config() {
+    local backup_config="$1"
+
+    if [ -n "$backup_config" ] && [ -f "$backup_config" ]; then
+        install_config_file "$backup_config" || warn "恢复旧配置失败，请手动检查 ${CONFIG_PATH}"
+    fi
+}
+
+rollback_and_restart_old_service() {
+    local backup_binary="$1"
+    local backup_config="$2"
+
+    warn "新版本启动失败，正在恢复旧二进制并尝试重新启动原服务"
+    restore_backup_binary "$backup_binary"
+    restore_backup_config "$backup_config"
+    systemctl daemon-reload
+    if start_service; then
+        log "旧服务已恢复启动"
+    else
+        error "旧服务恢复启动失败，请手动检查 systemctl status ${SERVICE_UNIT}"
+    fi
+}
+
+update_stellarfrps() {
+    local backup_binary="${TMP_ROOT}/stellarcore.backup"
+    local backup_config="${TMP_ROOT}/frps.toml.backup"
+    local staged_config=""
+    local modify_config=""
+
+    log "开始更新 StellarFrps 服务..."
+
+    if [ -f "$BIN_PATH" ]; then
+        cp -p "$BIN_PATH" "$backup_binary" || die "备份旧二进制失败"
+    else
+        backup_binary=""
+    fi
+
+    if [ -f "$CONFIG_PATH" ]; then
+        cp -p "$CONFIG_PATH" "$backup_config" || die "备份配置文件失败"
+        cp -p "$CONFIG_PATH" "${CONFIG_PATH}.bak"
+        chmod 600 "${CONFIG_PATH}.bak"
+        log "已备份配置文件到 ${CONFIG_PATH}.bak"
+    else
+        backup_config=""
+    fi
+
+    download_and_prepare || {
+        error "下载或准备新版本失败，原服务未停止"
+        return 1
+    }
+
+    read -r -p "是否需要修改配置文件? (y/n): " modify_config
+    if [[ "$modify_config" == "y" || "$modify_config" == "Y" ]]; then
+        log "开始修改配置文件..."
+        PORT_CHECK_ALLOW_CURRENT_CONFIG=true
+        prompt_runtime_config
+        PORT_CHECK_ALLOW_CURRENT_CONFIG=false
+
+        staged_config="${TMP_ROOT}/frps.toml.update"
+        write_config_file "$staged_config" || {
+            error "生成新配置失败，原服务未停止"
+            return 1
+        }
+    else
+        log "保留原有配置文件"
+    fi
+
+    log "停止服务并替换二进制..."
+    systemctl stop "$SERVICE_UNIT" || warn "停止服务命令返回异常，仍继续更新"
+
+    if ! install_binary_atomic "$PREPARED_BINARY"; then
+        rollback_and_restart_old_service "$backup_binary" "$backup_config"
+        return 1
+    fi
+
+    if [ -n "$staged_config" ]; then
+        if ! install_config_file "$staged_config"; then
+            rollback_and_restart_old_service "$backup_binary" "$backup_config"
+            return 1
+        fi
+    fi
+
+    systemctl daemon-reload
+    if ! start_service; then
+        rollback_and_restart_old_service "$backup_binary" "$backup_config"
+        return 1
+    fi
+
+    if [ -n "$staged_config" ]; then
+        configure_firewall
+        show_config_summary
+    fi
+
+    log "StellarFrps 服务更新完成"
+}
+
+ensure_jq
+
+log "欢迎使用 StellarFrps 安装脚本"
+log "-------------"
 
 if check_installed; then
-    echo "检测到 StellarFrps 已安装"
-    echo "请选择操作："
-    echo "1. 更新 StellarFrps"
-    echo "2. 卸载 StellarFrps"
-    echo "3. 退出脚本"
-    read -p "请输入选项 [1-3]: " OPTION
+    log "检测到 StellarFrps 已安装"
+    log "请选择操作："
+    log "1. 更新 StellarFrps"
+    log "2. 卸载 StellarFrps"
+    log "3. 退出脚本"
+    read -r -p "请输入选项 [1-3]: " OPTION
 
-    case $OPTION in
+    case "$OPTION" in
         1)
             update_stellarfrps
             ;;
@@ -815,38 +1041,34 @@ if check_installed; then
             uninstall_stellarfrps
             ;;
         3)
-            echo "已取消操作，脚本退出"
+            log "已取消操作，脚本退出"
             exit 0
             ;;
         *)
-            echo "无效选项，脚本退出"
+            error "无效选项，脚本退出"
             exit 1
             ;;
     esac
 else
-    echo "未检测到 StellarFrps 安装"
-    echo "请选择操作："
-    echo "1. 安装 StellarFrps"
-    echo "2. 退出脚本"
-    read -p "请输入选项 [1-2]: " OPTION
+    log "未检测到 StellarFrps 安装"
+    log "请选择操作："
+    log "1. 安装 StellarFrps"
+    log "2. 退出脚本"
+    read -r -p "请输入选项 [1-2]: " OPTION
 
-    case $OPTION in
+    case "$OPTION" in
         1)
             install_stellarfrps
             ;;
         2)
-            echo "已取消操作，脚本退出"
+            log "已取消操作，脚本退出"
             exit 0
             ;;
         *)
-            echo "无效选项，脚本退出"
+            error "无效选项，脚本退出"
             exit 1
             ;;
     esac
 fi
 
-# 脚本结束
 exit 0
-
-
-
