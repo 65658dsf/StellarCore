@@ -13,12 +13,14 @@ readonly GITHUB_API_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/la
 readonly BASE_API_URL="https://resources.stellarfrp.top/api/fs/list"
 readonly BASE_DOWNLOAD_URL="https://resources.stellarfrp.top/d/StellarCore"
 readonly ROOT_PATH="StellarCore"
+readonly DEFAULT_API_ADDR="https://api.stellarfrp.top"
 
 TMP_ROOT=""
 JQ_AVAILABLE=false
 FRP_ARCH=""
 PREPARED_BINARY=""
 PORT_CHECK_ALLOW_CURRENT_CONFIG=false
+API_ADDR="$DEFAULT_API_ADDR"
 
 log() {
     echo "$*"
@@ -757,6 +759,7 @@ prompt_runtime_config() {
 
 write_config_file() {
     local target="$1"
+    local api_addr="${API_ADDR:-$DEFAULT_API_ADDR}"
 
     {
         printf 'bindPort = %s\n' "$BIND_PORT"
@@ -774,7 +777,7 @@ write_config_file() {
             printf 'vhostHTTPSPort = 443\n'
         fi
         printf '[[httpPlugins]]\n'
-        printf 'addr = "https://api.stellarfrp.top"\n'
+        printf 'addr = "%s"\n' "$api_addr"
         printf 'path = "/api/v1/proxy/auth"\n'
         printf 'ops = ["Login", "NewProxy", "CloseProxy"]\n'
     } > "$target" || return 1
@@ -879,6 +882,10 @@ start_service() {
     systemctl start "$SERVICE_UNIT" && systemctl is-active --quiet "$SERVICE_UNIT"
 }
 
+restart_service() {
+    systemctl restart "$SERVICE_UNIT" && systemctl is-active --quiet "$SERVICE_UNIT"
+}
+
 uninstall_stellarfrps() {
     log "开始卸载 StellarFrps 服务..."
     systemctl stop "$SERVICE_UNIT" 2>/dev/null || true
@@ -932,6 +939,19 @@ restore_backup_config() {
     fi
 }
 
+rollback_config_and_restart() {
+    local backup_config="$1"
+
+    warn "新配置启动失败，正在恢复旧配置并尝试重新启动服务"
+    restore_backup_config "$backup_config"
+    systemctl daemon-reload
+    if start_service; then
+        log "旧配置已恢复启动"
+    else
+        error "旧配置恢复启动失败，请手动检查 systemctl status ${SERVICE_UNIT}"
+    fi
+}
+
 rollback_and_restart_old_service() {
     local backup_binary="$1"
     local backup_config="$2"
@@ -945,6 +965,200 @@ rollback_and_restart_old_service() {
     else
         error "旧服务恢复启动失败，请手动检查 systemctl status ${SERVICE_UNIT}"
     fi
+}
+
+current_api_addr() {
+    if [ ! -f "$CONFIG_PATH" ]; then
+        return 0
+    fi
+
+    awk '
+        /^\[\[httpPlugins\]\]/ {
+            in_plugin = 1
+            next
+        }
+        in_plugin && /^\[/ {
+            exit
+        }
+        in_plugin && /^[[:space:]]*addr[[:space:]]*=/ {
+            line = $0
+            sub(/^[^"]*"/, "", line)
+            sub(/".*$/, "", line)
+            print line
+            exit
+        }
+    ' "$CONFIG_PATH"
+}
+
+validate_api_addr() {
+    local api_addr="$1"
+
+    if [ -z "$api_addr" ]; then
+        error "API 地址不能为空"
+        return 1
+    fi
+
+    case "$api_addr" in
+        http://*|https://*) ;;
+        *)
+            error "API 地址必须以 http:// 或 https:// 开头"
+            return 1
+            ;;
+    esac
+
+    case "$api_addr" in
+        *\"*|*\\*|*[[:space:]]*)
+            error "API 地址不能包含引号、反斜杠或空白字符"
+            return 1
+            ;;
+    esac
+
+    return 0
+}
+
+prompt_api_addr() {
+    local current_addr="$1"
+    local input=""
+
+    [ -n "$current_addr" ] || current_addr="$DEFAULT_API_ADDR"
+
+    while true; do
+        read -r -p "请输入新的 API 地址 [${current_addr}]: " input
+        [ -n "$input" ] || input="$current_addr"
+        if validate_api_addr "$input"; then
+            API_ADDR="$input"
+            return 0
+        fi
+    done
+}
+
+update_api_addr_in_config() {
+    local source_config="$1"
+    local target_config="$2"
+    local api_addr="$3"
+
+    awk -v api_addr="$api_addr" '
+        BEGIN {
+            in_plugin = 0
+            seen_plugin = 0
+            replaced = 0
+        }
+        /^\[\[httpPlugins\]\]/ && !seen_plugin {
+            in_plugin = 1
+            seen_plugin = 1
+            print
+            next
+        }
+        in_plugin && /^\[/ {
+            if (!replaced) {
+                print "addr = \"" api_addr "\""
+                replaced = 1
+            }
+            in_plugin = 0
+        }
+        in_plugin && /^[[:space:]]*addr[[:space:]]*=/ && !replaced {
+            print "addr = \"" api_addr "\""
+            replaced = 1
+            next
+        }
+        {
+            print
+        }
+        END {
+            if (!seen_plugin) {
+                print "[[httpPlugins]]"
+                print "addr = \"" api_addr "\""
+                print "path = \"/api/v1/proxy/auth\""
+                print "ops = [\"Login\", \"NewProxy\", \"CloseProxy\"]"
+            } else if (in_plugin && !replaced) {
+                print "addr = \"" api_addr "\""
+            }
+        }
+    ' "$source_config" > "$target_config" || return 1
+
+    chmod 600 "$target_config"
+}
+
+update_config_file_only() {
+    local backup_config="${TMP_ROOT}/frps.toml.config-backup"
+    local staged_config="${TMP_ROOT}/frps.toml.config-update"
+
+    log "开始更新配置文件..."
+
+    if [ ! -f "$CONFIG_PATH" ]; then
+        error "未找到配置文件 ${CONFIG_PATH}"
+        return 1
+    fi
+
+    cp -p "$CONFIG_PATH" "$backup_config" || die "备份配置文件失败"
+    cp -p "$CONFIG_PATH" "${CONFIG_PATH}.bak"
+    chmod 600 "${CONFIG_PATH}.bak"
+    log "已备份配置文件到 ${CONFIG_PATH}.bak"
+
+    API_ADDR="$(current_api_addr)"
+    [ -n "$API_ADDR" ] || API_ADDR="$DEFAULT_API_ADDR"
+
+    PORT_CHECK_ALLOW_CURRENT_CONFIG=true
+    prompt_runtime_config
+    PORT_CHECK_ALLOW_CURRENT_CONFIG=false
+
+    write_config_file "$staged_config" || {
+        error "生成新配置失败"
+        return 1
+    }
+
+    install_config_file "$staged_config" || {
+        error "安装新配置失败"
+        return 1
+    }
+
+    if ! restart_service; then
+        rollback_config_and_restart "$backup_config"
+        return 1
+    fi
+
+    configure_firewall
+    show_config_summary
+    log "配置文件更新完成"
+}
+
+update_api_addr_only() {
+    local backup_config="${TMP_ROOT}/frps.toml.api-backup"
+    local staged_config="${TMP_ROOT}/frps.toml.api-update"
+    local current_addr=""
+
+    log "开始仅更新 API 地址..."
+
+    if [ ! -f "$CONFIG_PATH" ]; then
+        error "未找到配置文件 ${CONFIG_PATH}"
+        return 1
+    fi
+
+    current_addr="$(current_api_addr)"
+    [ -n "$current_addr" ] || current_addr="$DEFAULT_API_ADDR"
+    prompt_api_addr "$current_addr"
+
+    cp -p "$CONFIG_PATH" "$backup_config" || die "备份配置文件失败"
+    cp -p "$CONFIG_PATH" "${CONFIG_PATH}.bak"
+    chmod 600 "${CONFIG_PATH}.bak"
+    log "已备份配置文件到 ${CONFIG_PATH}.bak"
+
+    update_api_addr_in_config "$CONFIG_PATH" "$staged_config" "$API_ADDR" || {
+        error "生成 API 地址更新配置失败"
+        return 1
+    }
+
+    install_config_file "$staged_config" || {
+        error "安装 API 地址更新配置失败"
+        return 1
+    }
+
+    if ! restart_service; then
+        rollback_config_and_restart "$backup_config"
+        return 1
+    fi
+
+    log "API 地址已更新为: $API_ADDR"
 }
 
 update_stellarfrps() {
@@ -1030,8 +1244,10 @@ if check_installed; then
     log "请选择操作："
     log "1. 更新 StellarFrps"
     log "2. 卸载 StellarFrps"
-    log "3. 退出脚本"
-    read -r -p "请输入选项 [1-3]: " OPTION
+    log "3. 更新配置文件"
+    log "4. 仅更新api地址"
+    log "5. 退出脚本"
+    read -r -p "请输入选项 [1-5]: " OPTION
 
     case "$OPTION" in
         1)
@@ -1041,6 +1257,12 @@ if check_installed; then
             uninstall_stellarfrps
             ;;
         3)
+            update_config_file_only
+            ;;
+        4)
+            update_api_addr_only
+            ;;
+        5)
             log "已取消操作，脚本退出"
             exit 0
             ;;
