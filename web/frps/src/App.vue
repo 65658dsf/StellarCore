@@ -41,6 +41,11 @@
               <span>配置浏览</span>
             </el-menu-item>
 
+            <el-menu-item index="/logs">
+              <el-icon><Tickets /></el-icon>
+              <span>日志</span>
+            </el-menu-item>
+
             <el-sub-menu index="/proxies">
               <template #title>
                 <el-icon><Connection /></el-icon>
@@ -86,6 +91,7 @@ import {
   QuestionFilled,
   Promotion,
   Document,
+  Tickets,
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -103,7 +109,11 @@ const handleSelect = (key: string) => {
 <style>
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, Helvetica Neue, sans-serif;
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    Helvetica Neue,
+    sans-serif;
 }
 
 .header {

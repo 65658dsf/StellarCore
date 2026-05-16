@@ -148,3 +148,11 @@ type CloseUserResp struct {
 	Status int    `json:"status"`
 	Msg    string `json:"message"`
 }
+
+type UpdateResp struct {
+	CurrentVersion string `json:"currentVersion"`
+	LatestVersion  string `json:"latestVersion,omitempty"`
+	HasUpdate      bool   `json:"hasUpdate"`
+	UpdateStarted  bool   `json:"updateStarted"`
+	Message        string `json:"message"`
+}

@@ -87,7 +87,19 @@
           </div>
           <div class="header-actions">
             <el-button :loading="loading" @click="fetchData">刷新</el-button>
-            <el-button type="danger" :loading="restarting" @click="handleRestart">
+            <el-button
+              type="primary"
+              :icon="Upload"
+              :loading="updating"
+              @click="handleUpdate"
+            >
+              检测更新
+            </el-button>
+            <el-button
+              type="danger"
+              :loading="restarting"
+              @click="handleRestart"
+            >
               重启服务
             </el-button>
           </div>
@@ -155,9 +167,15 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Upload } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import StatCard from './StatCard.vue'
-import { getAllTraffic, getServerInfo, restartService } from '../api/server'
+import {
+  checkUpdateAndInstall,
+  getAllTraffic,
+  getServerInfo,
+  restartService,
+} from '../api/server'
 import { formatFileSize } from '../utils/format'
 import { DrawProxyChart, DrawTrafficChart } from '../utils/chart'
 
@@ -207,6 +225,7 @@ const data = ref<ServerOverviewData>({
 
 const loading = ref(false)
 const restarting = ref(false)
+const updating = ref(false)
 const trafficSeries = ref({
   trafficIn: [] as number[],
   trafficOut: [] as number[],
@@ -224,7 +243,11 @@ const hasActiveProxies = computed(() =>
 
 const updateSummaryCharts = async () => {
   await nextTick()
-  DrawTrafficChart('traffic-pie', data.value.totalTrafficIn, data.value.totalTrafficOut)
+  DrawTrafficChart(
+    'traffic-pie',
+    data.value.totalTrafficIn,
+    data.value.totalTrafficOut,
+  )
   if (hasActiveProxies.value) {
     DrawProxyChart('proxy-pie', { proxyTypeCount: data.value.proxyTypeCounts })
   }
@@ -419,6 +442,53 @@ const handleRestart = async () => {
   }
 }
 
+const handleUpdate = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '将检测 StellarCore 新版本；如果发现可用更新，会在后台下载安装并触发服务重启。确定继续吗？',
+      '检测更新',
+      {
+        confirmButtonText: '检测并更新',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    )
+  } catch {
+    return
+  }
+
+  updating.value = true
+  try {
+    const response = await checkUpdateAndInstall()
+    if (response.hasUpdate && response.updateStarted) {
+      ElMessage({
+        showClose: true,
+        message:
+          response.message ||
+          `发现新版本 ${response.latestVersion}，已开始后台更新`,
+        type: 'success',
+      })
+      return
+    }
+
+    ElMessage({
+      showClose: true,
+      message:
+        response.message ||
+        `当前版本 ${response.currentVersion || data.value.version} 已是最新版本`,
+      type: 'info',
+    })
+  } catch (error: any) {
+    ElMessage({
+      showClose: true,
+      message: `检测更新失败: ${error.message}`,
+      type: 'error',
+    })
+  } finally {
+    updating.value = false
+  }
+}
+
 const handleResize = () => {
   trendChart?.resize()
 }
@@ -480,6 +550,7 @@ html.dark .config-card {
 
 .header-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
 }
 

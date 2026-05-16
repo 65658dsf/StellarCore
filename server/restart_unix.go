@@ -8,11 +8,16 @@ import (
 )
 
 func platformRestartExecutor() RestartExecutor {
-	return func() error {
-		executable, err := os.Executable()
-		if err != nil {
+	executable, err := os.Executable()
+	if err != nil {
+		return func() error {
 			return err
 		}
-		return syscall.Exec(executable, append([]string{executable}, os.Args[1:]...), os.Environ())
+	}
+	args := append([]string{executable}, os.Args[1:]...)
+	envs := os.Environ()
+
+	return func() error {
+		return syscall.Exec(executable, args, envs)
 	}
 }

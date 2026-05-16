@@ -46,6 +46,8 @@ func (svr *Service) registerRouteHandlers(helper *httppkg.RouterRegisterHelper) 
 	subRouter.HandleFunc("/api/client/kick", httppkg.MakeHTTPHandlerFunc(svr.apiController.KickClient)).Methods("POST")
 	subRouter.HandleFunc("/api/config", httppkg.MakeHTTPHandlerFunc(svr.apiController.GetConfig)).Methods("GET")
 	subRouter.HandleFunc("/api/restart", httppkg.MakeHTTPHandlerFunc(svr.apiController.RestartService)).Methods("POST")
+	subRouter.HandleFunc("/api/logs", httppkg.MakeHTTPHandlerFunc(svr.apiController.GetLogs)).Methods("GET")
+	subRouter.HandleFunc("/api/update", httppkg.MakeHTTPHandlerFunc(svr.apiController.UpdateService)).Methods("POST")
 
 	subRouter.Handle("/favicon.ico", http.FileServer(helper.AssetsFS)).Methods("GET")
 	subRouter.PathPrefix("/static/").Handler(

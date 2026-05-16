@@ -23,6 +23,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -138,6 +139,7 @@ type Service struct {
 	configFilePath  string
 	restartExecutor RestartExecutor
 	restartPending  atomic.Bool
+	updatePending   atomic.Bool
 
 	// 黑名单，存储被踢出客户端的runID和封禁截止时间
 	blacklist     map[string]time.Time
@@ -206,6 +208,7 @@ func NewService(cfg *v1.ServerConfig, options ServiceOptions) (*Service, error) 
 		KickClient:     svr.kickClientByRunID,
 		ReadConfig:     svr.readConfig,
 		RestartService: svr.scheduleRestart,
+		UpdateService:  svr.startUpdate,
 	})
 	if webServer != nil {
 		webServer.RouteRegister(svr.registerRouteHandlers)
@@ -387,6 +390,7 @@ func (svr *Service) Run(ctx context.Context) {
 
 	// 启动黑名单清理协程
 	go svr.cleanBlacklist()
+	go svr.runAutoUpdateWorker()
 
 	// 注释掉连接池相关代码，因为无法编译
 	// Create connection pool if specified.
@@ -827,4 +831,63 @@ func (svr *Service) scheduleRestart() error {
 		}
 	}()
 	return nil
+}
+
+func (svr *Service) restartAfterUpdate() error {
+	if svr.restartExecutor == nil {
+		return fmt.Errorf("restart executor is not available")
+	}
+	if !svr.restartPending.CompareAndSwap(false, true) {
+		return fmt.Errorf("restart already in progress")
+	}
+	err := svr.restartExecutor()
+	svr.restartPending.Store(false)
+	return err
+}
+
+func (svr *Service) startUpdate(ctx context.Context) (api.UpdateResp, error) {
+	resp := api.UpdateResp{}
+	if !autoUpdateSupportedGOOS(runtime.GOOS) {
+		return resp, httppkg.NewError(http.StatusNotImplemented, fmt.Sprintf("update is not supported on %s", runtime.GOOS))
+	}
+	if svr.restartExecutor == nil {
+		return resp, httppkg.NewError(http.StatusNotImplemented, "restart is not supported on this platform")
+	}
+	if !svr.updatePending.CompareAndSwap(false, true) {
+		return resp, httppkg.NewError(http.StatusConflict, "update already in progress")
+	}
+
+	updater := newCoreAutoUpdater(svr.restartAfterUpdate)
+	result, err := updater.CheckLatest(ctx)
+	if err != nil {
+		svr.updatePending.Store(false)
+		return resp, err
+	}
+
+	resp.CurrentVersion = result.CurrentVersion
+	if result.Candidate != nil {
+		resp.LatestVersion = result.Candidate.Version
+	}
+	if !result.HasUpdate {
+		resp.Message = fmt.Sprintf("当前版本 %s 已是最新版本", result.CurrentVersion)
+		svr.updatePending.Store(false)
+		return resp, nil
+	}
+
+	resp.HasUpdate = true
+	resp.UpdateStarted = true
+	resp.Message = fmt.Sprintf("发现新版本 %s，已开始后台更新", result.Candidate.Version)
+	candidate := result.Candidate
+	go func() {
+		defer svr.updatePending.Store(false)
+		log.Infof("发现 StellarCore 新版本 %s，当前版本 %s，开始手动更新", candidate.Version, result.CurrentVersion)
+		updateCtx := svr.ctx
+		if updateCtx == nil {
+			updateCtx = context.Background()
+		}
+		if err := updater.downloadInstallAndRestart(updateCtx, candidate); err != nil {
+			log.Warnf("StellarCore 手动更新失败: %v", err)
+		}
+	}()
+	return resp, nil
 }

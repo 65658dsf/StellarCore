@@ -14,11 +14,27 @@
 
 package version
 
-var version = "StellarCore-1.1.6-0.67.0"
+import "regexp"
+
+var version = "StellarCore-1.1.7-0.69.0"
 var brand = "StellarFrp"
+
+var coreVersionPattern = regexp.MustCompile(`^StellarCore-([0-9]+(?:\.[0-9]+)*)`)
 
 func Full() string {
 	return version
+}
+
+func Core() string {
+	return CoreFromFull(version)
+}
+
+func CoreFromFull(full string) string {
+	matches := coreVersionPattern.FindStringSubmatch(full)
+	if len(matches) == 2 {
+		return matches[1]
+	}
+	return full
 }
 
 func Brand() string {

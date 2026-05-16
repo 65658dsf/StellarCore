@@ -16,10 +16,12 @@ package api
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,6 +38,7 @@ import (
 type KickClientFunc func(runID string) (found bool, err error)
 type ConfigReader func() ([]byte, error)
 type RestartServiceFunc func() error
+type UpdateServiceFunc func(context.Context) (UpdateResp, error)
 
 type Controller struct {
 	serverCfg      *v1.ServerConfig
@@ -44,6 +47,7 @@ type Controller struct {
 	kickClient     KickClientFunc
 	readConfig     ConfigReader
 	restartService RestartServiceFunc
+	updateService  UpdateServiceFunc
 }
 
 type ControllerParams struct {
@@ -53,6 +57,7 @@ type ControllerParams struct {
 	KickClient     KickClientFunc
 	ReadConfig     ConfigReader
 	RestartService RestartServiceFunc
+	UpdateService  UpdateServiceFunc
 }
 
 type ProxyManager interface {
@@ -67,6 +72,7 @@ func NewController(params ControllerParams) *Controller {
 		kickClient:     params.KickClient,
 		readConfig:     params.ReadConfig,
 		restartService: params.RestartService,
+		updateService:  params.UpdateService,
 	}
 }
 
@@ -377,6 +383,25 @@ func (c *Controller) RestartService(_ *httppkg.Context) (any, error) {
 	return nil, nil
 }
 
+func (c *Controller) GetLogs(ctx *httppkg.Context) (any, error) {
+	cursor, err := parseOptionalInt64Query(ctx, "cursor")
+	if err != nil {
+		return nil, err
+	}
+	limit, err := parseOptionalIntQuery(ctx, "limit")
+	if err != nil {
+		return nil, err
+	}
+	return log.QueryEntries(cursor, limit, ctx.Query("level")), nil
+}
+
+func (c *Controller) UpdateService(ctx *httppkg.Context) (any, error) {
+	if c.updateService == nil {
+		return nil, httppkg.NewError(http.StatusNotImplemented, "update is not supported on this platform")
+	}
+	return c.updateService(ctx.Req.Context())
+}
+
 func (c *Controller) getProxyStatsByType(proxyType string) (proxyInfos []*ProxyStatsInfo) {
 	proxyStats := mem.StatsCollector.GetProxiesByType(proxyType)
 	proxyInfos = make([]*ProxyStatsInfo, 0, len(proxyStats))
@@ -533,6 +558,30 @@ func matchStatusFilter(online bool, filter string) bool {
 	default:
 		return true
 	}
+}
+
+func parseOptionalInt64Query(ctx *httppkg.Context, key string) (int64, error) {
+	raw := ctx.Query(key)
+	if raw == "" {
+		return 0, nil
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || value < 0 {
+		return 0, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("invalid %s", key))
+	}
+	return value, nil
+}
+
+func parseOptionalIntQuery(ctx *httppkg.Context, key string) (int, error) {
+	raw := ctx.Query(key)
+	if raw == "" {
+		return 0, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 {
+		return 0, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("invalid %s", key))
+	}
+	return value, nil
 }
 
 func getConfByType(proxyType string) any {

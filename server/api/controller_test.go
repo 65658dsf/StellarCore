@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 
 	v1 "github.com/65658dsf/StellarCore/pkg/config/v1"
 	httppkg "github.com/65658dsf/StellarCore/pkg/util/http"
+	utillog "github.com/65658dsf/StellarCore/pkg/util/log"
 )
 
 func performRequest(t *testing.T, handler httppkg.APIHandler, method, path string, body *strings.Reader) *httptest.ResponseRecorder {
@@ -93,6 +95,81 @@ func TestControllerRestartServiceConflict(t *testing.T) {
 	})
 
 	recorder := performRequest(t, controller.RestartService, http.MethodPost, "/api/restart", strings.NewReader(""))
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d", recorder.Code)
+	}
+}
+
+func TestControllerGetLogs(t *testing.T) {
+	utillog.ResetBufferForTesting()
+	utillog.Infof("controller log test")
+	controller := NewController(ControllerParams{})
+
+	recorder := performRequest(t, controller.GetLogs, http.MethodGet, "/api/logs?limit=10", strings.NewReader(""))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+
+	var resp utillog.LogQueryResult
+	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if len(resp.Entries) != 1 {
+		t.Fatalf("expected one log entry, got %d", len(resp.Entries))
+	}
+	if !strings.Contains(resp.Entries[0].Message, "controller log test") {
+		t.Fatalf("unexpected log entry %#v", resp.Entries[0])
+	}
+}
+
+func TestControllerGetLogsRejectsInvalidCursor(t *testing.T) {
+	controller := NewController(ControllerParams{})
+	recorder := performRequest(t, controller.GetLogs, http.MethodGet, "/api/logs?cursor=bad", strings.NewReader(""))
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", recorder.Code)
+	}
+}
+
+func TestControllerUpdateService(t *testing.T) {
+	called := false
+	controller := NewController(ControllerParams{
+		UpdateService: func(ctx context.Context) (UpdateResp, error) {
+			called = true
+			return UpdateResp{
+				CurrentVersion: "1.1.6",
+				LatestVersion:  "1.1.7",
+				HasUpdate:      true,
+				UpdateStarted:  true,
+				Message:        "update started",
+			}, nil
+		},
+	})
+
+	recorder := performRequest(t, controller.UpdateService, http.MethodPost, "/api/update", strings.NewReader(""))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	if !called {
+		t.Fatalf("expected update callback to be called")
+	}
+
+	var resp UpdateResp
+	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if !resp.HasUpdate || !resp.UpdateStarted || resp.LatestVersion != "1.1.7" {
+		t.Fatalf("unexpected update response %#v", resp)
+	}
+}
+
+func TestControllerUpdateServiceConflict(t *testing.T) {
+	controller := NewController(ControllerParams{
+		UpdateService: func(ctx context.Context) (UpdateResp, error) {
+			return UpdateResp{}, httppkg.NewError(http.StatusConflict, "update already in progress")
+		},
+	})
+
+	recorder := performRequest(t, controller.UpdateService, http.MethodPost, "/api/update", strings.NewReader(""))
 	if recorder.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d", recorder.Code)
 	}
